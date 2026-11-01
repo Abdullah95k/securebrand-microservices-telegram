@@ -1,814 +1,688 @@
 # SecureBrand Telegram collector: research and plan
 
-Status: **plan for review. No code is written and nothing has been run against Telegram.**
+Status: **plan for review (version 2). No code is written and nothing has been run against Telegram.**
 All times in this document are **Iraq time (UTC+3)**.
-Prepared: 1 November 2026.
+Version 1: 1 November 2026. Version 2 (same day): updated with your answers, see §1.
 
 ---
 
 ## 0. Summary in plain language
 
-**Can we collect public Telegram data?** Yes, technically, in three ways:
+**Your decisions:**
 
-1. **Logged out (no account).** The public web preview `t.me/s/<channel>` shows a channel's info and its posts. Views are rounded ("1.2K"). Reactions and media are shown, and you can page back through history and search inside one channel. It does **not** work for groups. It does not give exact counts, forward counts or deletions, and some channels have no preview.
-2. **A bot.** A bot only sees chats it has been **added to**, and in a channel only as an **admin**. It sees new posts, edits, reaction totals and comments in real time. It sees **no views and no history from before it joined**, and it is never told about deletions. So a bot only helps for **channels our clients own** and add it to.
-3. **A logged-in user account (MTProto).** This is the only way that gives everything: exact views, forwards, reactions, complete comment threads, public groups, full history, and **keyword search across all public channels**. Search needs Telegram Premium, has a small daily free quota, and costs Telegram Stars after that. It needs a real phone number and carries a real **risk of the account being banned or frozen**.
+- **No Telegram account** of any kind.
+- **No bot** (clients don't own the channels).
+- **Thousands** of channels and public groups.
+- **Keywords that change** over time.
+- The data is for **brand monitoring, not AI or machine learning**.
 
-**The big catch: Telegram's rules changed.** Since **3 February 2026** the main Terms of Service say Telegram *"prohibits data scraping"* for *"all users, businesses, and third-party services"*. The API terms also forbid using Telegram data to *"train, fine-tune or otherwise engage in the development, enhancement or deployment of artificial intelligence, machine learning models"*. In plain words:
+That leaves one way to read Telegram directly: **logged out**, through Telegram's public web pages. It can be combined with an optional **paid data vendor**.
 
-- No method is clearly **allowed** for systematically collecting channels we don't own, including logged out.
-- Feeding Telegram data into **ML analysis** (sentiment models, LLM summaries, OCR or logo recognition) is explicitly forbidden. The Facebook project's analysis handoff cannot be copied as it is.
-- The cleanest case is **client-owned channels**, read by a bot the client adds as admin, collecting only what is needed.
+**What logged-out access can do well:**
 
-**My recommendation:**
+- **Public channels:**
+  - channel info and how it changes;
+  - every post with text, links, photos, polls and forward source;
+  - **rounded** view counts ("1.2K");
+  - reactions;
+  - history going back;
+  - search inside each channel.
+- **Comments under channel posts:** through Telegram's comments widget. How complete it is will be measured in Phase 0.
+- **Keyword mentions:** in everything we collect. When you add a keyword, we also search what we already stored.
 
-- Get a **legal opinion first** (I am not a lawyer).
-- Then run a 7-day **Phase 0** on about 10 channels to measure the real limits.
-- The likely final design is a mix:
-  - **logged out** for public channels we don't own;
-  - **a bot** for clients' own channels;
-  - **one user account** (you choose which) only for what nothing else can do: comments, public groups, cross-channel keyword search and exact counts.
-- No ML on Telegram data until a lawyer clears it.
+**What it cannot do, and what I recommend instead:**
 
----
+- **Public groups have no web feed.** Logged out, a group can only be read **one message per request** through the post widget. That is fine for a few dozen quiet groups, but **not for thousands**. I recommend a "priority groups" mode for the ones that matter most. For wider group coverage, test a vendor (TGStat) in Phase 0.
+- **No exact view counts, no forward counts, no exact deletion times.**
+- **No search across all of Telegram.** Mentions are complete for every channel we watch. Discovering mentions *elsewhere* needs a vendor. We also suggest new channels to watch, based on forwards and links we see.
 
-## 1. How this research was done, and what could not be checked
+**Speed is the real limit.** Everything goes through one server's IP address, and we will not rotate IPs to get around Telegram's limits. How fresh thousands of channels can be depends on how many requests per second Telegram tolerates from one IP, which Phase 0 measures:
 
-- **Nothing was run against Telegram.** No page on t.me was fetched, no account or bot was used.
-- **This session's network blocks** telegram.org, core.telegram.org, TGStat and Hetzner (proxy answers `403` to CONNECT). So I could not open Telegram's documentation pages directly. Instead I used:
-  - **Official Telegram sources hosted on GitHub:**
-    - Telegram Desktop's API schema (`api.tl`, **layer 232**);
-    - TDLib's documented API (`td_api.tl`) and its source code (TDLib is Telegram's own client library);
-    - the Bot API specification generated from the official docs (**Bot API 10.3, 24 August 2026**).
-  - **Archived copies of Telegram's legal texts** from Open Terms Archive, which tracks them: Terms of Service, API Terms of Service, Privacy Policy.
-  - **Web search summaries** for official pages that are not mirrored: Bot Platform Developer Terms, Content Licensing terms, the widget pages, the post-search announcement, and vendor prices.
-  - **Source code of open-source tools** that read the web preview (snscrape, RSSHub, minet from Sciences Po médialab, TeleGlance, BroadcastChannel). This shows what the preview contains.
-  - **Library repositories:** gotd/td, gotd/contrib, Telethon, Pyrogram, TDLib.
-- Each fact below carries a tag:
-  - **[V]** verified in an official Telegram source (schema, TDLib, Bot API spec, or an archived official text);
-  - **[S]** seen through a search summary of an official page I could not open; please re-check;
-  - **[3P]** third-party source;
-  - **[P0]** unknown until Phase 0 measures it.
-- **To let me re-check the [S] items word for word:** allow `telegram.org`, `core.telegram.org`, `tgstat.com` and `www.hetzner.com` in this environment's network settings. Open the cloud environment menu in the session title bar, choose Edit, then Network access, and add them under Allowed domains. Steps: <https://code.claude.com/docs/en/cloud-environments#network-access>.
+- at 1 request per second, about 3,000 channels split as **300 priority channels checked every 15 min**, 900 every hour and the rest every ~4 hours;
+- the system automatically gives priority channels their freshness first.
+
+**Rules:** Telegram's terms (since 3 Feb 2026) prohibit "data scraping" in general and forbid AI/ML use. You've confirmed the data is not used for AI/ML. The general scraping clause still applies to logged-out collection; it is recorded as risk R1 (§11). We will also **follow `t.me/robots.txt`** (test W0).
+
+**Cost:** about **US$45–60 a month** for one server plus storage at ~3,000 channels. An optional vendor costs extra (TGStat from about 2,100 ₽ a month).
+
+**Next step:** you approve this plan → I build a small read-only measuring tool in a few small PRs → a 7–10 day **Phase 0** on your server → final numbers and settings.
 
 ---
 
-## 2. Telegram's rules: read this first
+## 1. Decisions
 
-### 2.1 What the texts say
+### 1.1 Your answers (1 November 2026)
+
+| # | Question | Your answer |
+|---|---|---|
+| 1 | Recommendations and use of data | You want my recommendations. The data is used for **brand monitoring, not AI or machine learning**. |
+| 2 | Keywords and scale | Keywords are **dynamic**. Channels and public groups number **in the thousands**. |
+| 3 | Accounts | **No Telegram account** of any kind. |
+| 4 | Client-owned channels | **None.** So a bot can't be used. |
+| 5 | Facebook project repo | **Can't be attached.** So this project is designed standalone; nothing from it is assumed. |
+
+### 1.2 My recommended defaults
+
+You can change any of these later; they are settings, not code.
+
+| Topic | Default |
+|---|---|
+| Access | Logged-out only: profile page, web feed, post widget, comments widget. A vendor is optional. |
+| Priority tiers for channels | **P1** (brands' competitors and the most important channels, about 10%); **P2** (important, about 30%); **P3** (everything else). You tag channels; the system adapts within each tier. |
+| Freshness targets (new posts) | P1 ≤ 15 min, P2 ≤ 60 min, P3 ≤ 4 h at 1 request per second. Faster if Phase 0 shows more capacity (§9.5). |
+| History backfill for a new channel | **90 days** of posts (can be raised per channel). Comments: **14 days**. |
+| Re-checking a post's views and reactions | For **30 days** after posting (P1: up to 90 days). |
+| Comments | All posts in **P1** channels, plus **any post that mentions a keyword**. Elsewhere only the comment count, if the feed shows it. |
+| Public groups | **Priority-groups mode** for a limited set (size fixed after Phase 0, likely tens). Wider group coverage only through a vendor if Phase 0 shows one works. |
+| Media | Metadata for everything. Photos kept only for **P1 channels and keyword-matched posts**. No video or file downloads (mostly not available logged out anyway). |
+| Retention | Channel posts 24 months; comments and group messages 12 months; photos 90 days; metric snapshots thinned to daily after 90 days; raw pages **never stored**. |
+| Pseudonymization of people | **On by default** for commenters and group members. |
+| Discovering new channels | Suggest channels seen in forwards, @mentions and `t.me` links. A person approves each one; nothing is added automatically. |
+| Infrastructure | Standalone: Go services, Postgres, Valkey, S3-compatible object storage, Prometheus/Grafana, Docker Compose on **one Hetzner server**, GitHub Actions CI. No Kafka at first; an "outbox" can feed Kafka or webhooks later. |
+| Outputs | REST API plus outgoing webhooks for mentions and alerts; email alerts for operations. |
+| Identity on the web | An honest User-Agent naming SecureBrand, **one fixed IP address**, and we obey `robots.txt`, `429` and `Retry-After`. **No proxies, no IP rotation.** |
+
+---
+
+## 2. How this research was done, and what could not be checked
+
+- **Nothing was run against Telegram.** No page on t.me was fetched.
+- **This session's network blocks** telegram.org, core.telegram.org, TGStat and Hetzner. So I used:
+  - **Official Telegram sources on GitHub:**
+    - Telegram Desktop's API schema (layer 232);
+    - TDLib's documented API and source (Telegram's own library);
+    - the Bot API 10.3 specification (24 Aug 2026);
+    - a copy of Telegram's official **widget script** (`telegram-widget.js`), which shows the exact URLs the post and comments widgets load.
+  - **Archived copies of Telegram's legal texts** (Open Terms Archive).
+  - **Web search summaries** of official pages I couldn't open.
+  - **Source code of open-source tools** that read the web feed (snscrape, RSSHub, minet, TeleGlance, BroadcastChannel and others).
+- **Tags used below:**
+  - **[V]** verified in an official Telegram source;
+  - **[S]** from a search summary of an official page; re-check;
+  - **[3P]** third-party;
+  - **[P0]** measured in Phase 0.
+- To re-check the [S] items word for word, allow `telegram.org` and `core.telegram.org` in the environment's network settings: open the cloud environment menu in the session title bar, choose Edit, then Network access. Steps: <https://code.claude.com/docs/en/cloud-environments#network-access>.
+
+---
+
+## 3. Telegram's rules
 
 | Text | What it says | Tag |
 |---|---|---|
-| **Terms of Service** (telegram.org/tos), added 3 Feb 2026 | "Telegram additionally prohibits data scraping as part of its Content Licensing and AI Scraping Terms, which apply to all users, businesses, and third-party services accessing the platform." | [V] archived copy; date from Open Terms Archive |
-| **Content Licensing and AI Scraping Terms** (telegram.org/tos/content-licensing) | "Access to user-generated content for any purpose other than ordinary, legitimate, and intended use of the Telegram platform as its user is prohibited." | [S] |
-| same | "firmly prohibits the scraping, indexing, harvesting, aggregation or use of data obtained from its platform to train, fine-tune, validate or otherwise engage in the development, enhancement, benchmarking or deployment of artificial intelligence, machine learning models and similar technologies." | [V] quoted in the Open Terms Archive memo |
-| same | Narrow exception: access to "data required to launch and operate a legitimate third-party Telegram Client, Telegram Bot, or Telegram Mini App", licensed only as strictly required to operate that service. | [S] |
-| **API Terms of Service** 1.5 (core.telegram.org/api/terms) | "you are prohibited from using, accessing or aggregating data obtained from the Telegram platform to train, fine-tune or otherwise engage in the development, enhancement or deployment of artificial intelligence, machine learning models and similar technologies." | [V] archived copy |
-| API ToS 1.4 | Forbidden: "making actions on behalf of the user without the user's knowledge and consent", "tampering with the 'read' statuses of messages", etc. | [V] |
-| API ToS 2.1 / 2.3 | You must obtain your own api_id. The app title must not include "Telegram" (unless preceded by "Unofficial"). | [V] |
-| API ToS 3.3 | "If your app allows accessing content from Telegram channels, you must include support for official sponsored messages". Whether this applies to a back-end collector is an **open question**. | [V] |
-| API ToS 4.1–4.2 | On breach Telegram notifies the account; if not fixed in 10 days, API access is discontinued. | [V] |
-| **Bot Platform Developer Terms** 4.3 (telegram.org/tos/bot-developers) | Collect only data essential for the service. "Always prohibited uses include any form of data collection aimed at creating large datasets, machine learning models and AI products, such as scraping public group or channel contents." | [S] |
-| **Creating your application** (core.telegram.org/api/obtaining_api_id) | "all accounts that sign up or log in using unofficial Telegram clients are automatically put under observation". Using the API for flooding, spamming or faking subscriber and view counters → permanent ban. Wrongly banned accounts can write to recover@telegram.org. One api_id per phone number. | [S], and quoted in gotd's SUPPORT.md [3P] |
-| **Privacy Policy** | "everything you post in public will be accessible to everyone." (Accessible is not the same as licensed for collection.) | [V] |
+| **Terms of Service**, added 3 Feb 2026 | "Telegram additionally prohibits data scraping as part of its Content Licensing and AI Scraping Terms, which apply to all users, businesses, and third-party services accessing the platform." | [V] |
+| **Content Licensing and AI Scraping Terms** | "Access to user-generated content for any purpose other than ordinary, legitimate, and intended use of the Telegram platform as its user is prohibited." | [S] |
+| same | Prohibits "scraping, indexing, harvesting, aggregation or use of data … to train, fine-tune, validate or otherwise engage in the development, enhancement, benchmarking or deployment of artificial intelligence, machine learning models and similar technologies". | [V] (quoted in the Open Terms Archive memo) |
+| **API Terms of Service** 1.5 | No use of Telegram data for AI/ML "development, enhancement or deployment". Only relevant to accounts and apps; we use none. | [V] |
+| **Bot Developer Terms** 4.3 | "Always prohibited uses include any form of data collection aimed at creating large datasets, machine learning models and AI products, such as scraping public group or channel contents." We use no bot. | [S] |
+| **Privacy Policy** | "everything you post in public will be accessible to everyone." | [V] |
 
-### 2.2 What this means for us
+**What this means now:**
 
-1. **There is no method that Telegram's terms clearly allow** for systematically collecting public channels and groups we don't own. The scraping clause names "all users, businesses, and third-party services", which includes logged-out access to `t.me`. Whether brand monitoring counts as "ordinary, legitimate, and intended use" is a legal question.
-2. **AI/ML use is explicitly forbidden.** This covers *deployment*, not just training. Running a sentiment model, an LLM, OCR or logo detection on Telegram data is very likely covered. **The analysis handoff used in the Facebook project must be reviewed before any Telegram data goes there.** Until it is cleared, the plan only uses rule-based processing (keyword matching, counts, time series).
-3. **The best-defended case** is a **client's own channel or group**. The client (the owner) adds our bot as admin, and the bot is a "legitimate Telegram Bot" serving that owner. Even then, Bot Developer Terms 4.3 says to collect only what is essential and never build "large datasets". Comments are still other people's content.
-4. **Third-party data vendors** (section 3.4) move the collection away from us. That lowers *our* account risk, but the legal question stays.
-5. **Consequences of breaking the rules:** account ban or freeze (user-account path), IP blocking (logged-out path), loss of API access, and possible legal or reputational trouble for SecureBrand and its clients.
-
-**Decision needed from you:** get a written legal opinion (and possibly ask Telegram directly for permission) before collecting from channels we don't own. Phase 0 can start with **client-owned channels only** while that is pending (see §9).
+- **AI/ML clause:** you've confirmed the data is used for brand monitoring, not AI or ML. The plan enforces it. Telegram data is only processed by rules (keyword matching, counts, time series), and the plan records that it must **not** be sent to any ML system.
+- **General scraping clause:** it still applies to logged-out collection. Whether brand monitoring is "ordinary, legitimate, and intended use" is unclear. This is **risk R1**. It is your call; a short legal check is still worth having.
+- **Practical consequence:** Telegram can slow down or block our server's IP. There is no account to ban.
+- **We will follow `t.me/robots.txt`.** If it disallows the pages we need, we stop and talk before going further (test W0).
 
 ---
 
-## 3. The ways of access, in detail
+## 4. The ways of access (research record)
 
-### 3.1 Logged out: web preview, embeds, profile pages
+### 4.1 Logged out: profile page, web feed, widgets ← **chosen**
 
-**What exists:**
+| Page | What it gives | Tag |
+|---|---|---|
+| `t.me/<name>` | Profile card: title, description, photo, subscriber count ("12 345 subscribers" style). Also tells us whether a username exists and whether it is a channel, a group or a person. | [3P] |
+| `t.me/s/<name>` | **Web feed** (channels only). Header: title, username, description, photo, counters (subscribers, photos, videos, files, links). About 20 posts per page [P0]. A "more" link (`data-before`) goes back in history and `data-after` goes forward; `?q=<words>` searches inside the channel. | [3P] |
+| `t.me/<chat>/<id>?embed=1` | **Post widget**: one message. Works for **public channels and public groups** ("You can embed messages from public groups and channels anywhere"). The widget script loads exactly this URL. Options include `comment` (one comment), `userpic`, `dark`. | [V] URL from the widget script; [S] groups |
+| `t.me/<channel>/<id>?embed=1&discussion=1` | **Comments widget**: the comments under one channel post (the channel needs a linked discussion group). Option `comments_limit`. How many comments it really returns, and how "load more" works logged out: [P0]. | [V] URL and options from the widget script |
 
-- `t.me/<name>`: a profile card with title, description, photo, and subscriber count ("12 345 subscribers" style) [3P].
-- `t.me/s/<name>`: the web preview feed [3P].
-  - A channel header shows title, username, description, photo, and counters (subscribers, photos, videos, files, links).
-  - A page of recent posts follows (about 20 posts; [P0]).
-  - Older posts load via the "more" link (`data-before`), newer ones via `data-after`.
-  - `?q=<words>` searches inside that channel.
-- `t.me/<name>/<id>?embed=1`: one post as an embeddable widget [3P].
-- **Discussion widget**: embeds the comments of a public channel post. It works only for channels with a linked discussion group, and has a comment-count limit option [S]. How many comments it really returns: [P0].
+**What a post in the feed shows** (from parser code [3P]):
 
-**What a post shows** (from parser source code [3P]):
-
-- **Basics:** id, date, text with formatting, author signature (if the channel signs posts), "forwarded from" name and link, reply preview, "via bot".
-- **Media:** photos (CDN image URLs); videos (player or thumbnail, duration); round videos; voice notes; documents (title and size only); stickers; locations.
+- **Basics:** id, date, text with formatting, author signature, "forwarded from" name and link, reply preview, "via bot".
+- **Media:**
+  - photos (image URLs);
+  - videos (thumbnail, duration);
+  - voice notes;
+  - documents (title and size only);
+  - stickers;
+  - locations.
 - **Polls:** question, options, percentages, voter count.
 - **Link previews.**
-- **Views, rounded** ("1.2K"; minet's parser "cleans human-readable numbers").
-- **Reactions** (emoji and counts, including paid reactions).
-- An **"edited"** marker (no edit time).
-- Possibly a **comments counter** (some parsers look for it; [P0]).
+- **Views, rounded** ("1.2K").
+- **Reactions:** emoji and counts.
+- An **"edited"** marker.
+- Maybe a **comments count** (several parsers look for one "when visible"; [P0]).
 
 **What it does not give:**
 
-- exact view counts;
+- exact views;
 - forward counts;
-- the numeric id of a forward's source (only a name or link);
-- edit time or edit history;
-- deletions (you can only notice a post is gone);
-- full comment threads (unless the widget proves complete, [P0]);
-- **public groups at all**: snscrape treats a redirect away from `/s/` as "no public post list" [3P];
-- channels whose preview is unavailable. RSSHub warns "some channels are not available in t.me/s", naming porn, copyright and politics [3P]. This could matter for Iraqi political channels.
-- Large media (videos and files) mostly cannot be fetched [P0].
+- the numeric id of a forward's source (only its name or link);
+- edit times;
+- deletion events (only absence);
+- **any group feed**: groups only work message by message through the post widget;
+- channels whose preview Telegram disabled (RSSHub mentions porn, copyright and politics) [3P];
+- large media.
 
 | | |
 |---|---|
-| **Needs** | Nothing. One server with a stable IP and an honest User-Agent. |
-| **Limits** | Not documented. Limited per IP. Tools pause about 0.5 s between requests (minet default) [3P], which is not a safe number for us. History depth reachable by paging: [P0]. |
-| **Ban risk** | No account to ban. The server IP can be slowed (HTTP 429) or blocked. The HTML can change and break the parser. |
-| **ToS position** | Covered by the scraping prohibition (§2). Not an "allowed" route. |
+| **Needs** | Nothing; one server with a fixed IP. |
+| **Limits** | Not documented, per IP. One academic tool pauses 0.5 s between requests by default [3P]; that is not a safe number for us. [P0] |
+| **Risk** | The IP can be slowed (429) or blocked; the HTML can change. There is no account to lose. |
+| **ToS** | Covered by the general scraping clause (§3, R1). |
 
-**Small tests (Phase 0, only with your approval):** W1–W7 in §9.
+### 4.2 A bot (Bot API 10.3): **not used** (no client-owned channels)
 
-### 3.2 A bot (Bot API, current version 10.3, 24 Aug 2026)
+- A bot only sees chats it is added to, and channels only as an admin.
+- It receives new posts, edits, reaction totals (admin, delayed a few minutes) and comments in real time.
+- It gets **no view counts**, **no history from before it joined** and **no deletions** [V].
+- Useful only if a client ever owns a channel or group and adds it.
 
-**What it needs:**
+### 4.3 A user account (MTProto): **not used** (your decision)
 
-- A bot token from @BotFather (free).
-- **Channels:** bots can be added only as administrators [3P/S]. No special right is needed just to receive posts, but we should ask for **no rights at all beyond the minimum** (no posting, no deleting).
-- **Groups / discussion groups:** the bot must be **admin**, or have **privacy mode turned off** in BotFather and then be re-added [S]. Otherwise it only sees commands and replies to itself.
-- Bots don't see other bots' messages, unless a newer bot-to-bot mode is enabled [S].
+- The only way to get exact counts, full comment threads, groups read efficiently (100 messages per request), and Telegram's own search across all public channels. That search needs Premium, a daily free quota, then Stars [V].
+- It needs a real phone number, and the account can be banned or frozen.
+- Recorded here only so the trade-off is documented. **Reconsider only if groups or cross-Telegram search become essential and no vendor works.**
 
-**What it receives** [V], only *after* it joins:
+### 4.4 Third-party data services: **optional, tested in Phase 0**
 
-| Update / method | Gives |
-|---|---|
-| `channel_post`, `edited_channel_post` | New posts and edits: text, entities, media, `forward_origin`, `author_signature`, `media_group_id`, `edit_date`, polls. |
-| `message`, `edited_message` (in the discussion group or a group) | Comments and group messages. The channel post's automatic copy in the discussion group is flagged `is_automatic_forward`. |
-| `message_reaction_count` | Reaction totals on channel posts. **Bot must be admin** and must request this update. Updates are "grouped and can be sent with delay up to a few minutes". |
-| `message_reaction` | Who reacted (in groups). Admin needed. We would **not** request it. |
-| `getChat` → `ChatFullInfo` | Title, username, description, photo, `linked_chat_id`, `has_protected_content`, `has_visible_history`, and more. |
-| `getChatMemberCount` | Subscriber or member count. |
+**TGStat** has a large index of public Telegram channels and chats. They use their own collection; we would only call their API.
 
-**What it does not get** [V]:
+| API | What it does | Monthly prices [S] (rubles, 5% VAT incl.) |
+|---|---|---|
+| **Search API** | Post search and keyword mentions; billed by requests and **number of unique keywords** | START 2,100 ₽ · S 4,200 ₽ · M 12,600 ₽ · L 47,250 ₽ |
+| **Stat API** | Channel statistics and subscriber history | free tier · S 2,100 ₽ · M 8,190 ₽ · L 20,370 ₽ · XL 60,900 ₽ |
+| **Callback API** | Real-time keyword alerts | START 8,400 ₽ · S 29,820 ₽ · … |
 
-- **No view counts.** The `Message` type has no views field.
-- No forward counts and no reply counts.
-- **No deletions.** Only business-account deletions exist, which don't apply.
-- **No history from before it joined.** There is no history method; a bot only receives updates.
-- Nothing from chats it isn't in.
-- No search.
-- Bots also can't use user-only MTProto methods such as `channels.getChannelRecommendations` [S].
+Unknowns:
 
-| | |
-|---|---|
-| **Limits** | Undelivered updates are kept about 24 hours [S]. Files up to 20 MB through the cloud Bot API (more with a self-hosted Bot API server) [S]. Reading has no practical rate problem. |
-| **Ban risk** | Very low if the bot only listens. |
-| **ToS position** | The best of the three, because the channel owner invites it. Bot Developer Terms 4.3 still apply (minimal data, no datasets, no AI). We need a privacy policy for the bot (Telegram offers a standard one). |
-| **Fit** | **Only for chats our clients own** (or whose owners agree). |
+- Whether **groups' messages** are searchable (their docs talk about "posts" of channels);
+- coverage of Iraqi and Kurdish channels;
+- terms on storing data;
+- paying rubles from Iraq;
+- sign-up may need a person's Telegram login on their website (your decision; it is not our system using an account).
 
-### 3.3 A logged-in user account (MTProto)
+Others (Telemetr.io; listening suites such as Brand24, YouScan, Talkwalker, Meltwater, Brandwatch) list Telegram but were not verifiable from here. Scraping resellers (Apify, ScrapeCreators) read the same web pages we would, so they add little.
 
-**What it needs:**
+### 4.5 Side-by-side
 
-- A real phone number and a Telegram account using it.
-- `api_id` and `api_hash` from my.telegram.org, registered on that same number (one api_id per number [S]).
-- A client library.
-- A **session file**, which is a full login to the account.
-- Two-step verification (2FA) on the account.
-- Optional **Telegram Premium**: needed for global post search [S/V]. It also raises the join limit from 500 to 1000 channels and groups [3P from Telegram Desktop source] and removes download speed limits (Premium ToS 7.5 [V]).
+✅ yes · ◐ partly · ❌ no
 
-**What it can read from a public channel without joining** [V for the methods and fields; [P0] for real-world behaviour]:
-
-| Method | Gives |
-|---|---|
-| `contacts.resolveUsername` | Turns `@name` into an id plus `access_hash`. **Heavily rate-limited** in practice [3P]. RSSHub's code says "contacts.ResolveUsername is heavily rate limited"; one report describes 15–18 hour bans after a burst of about 160 calls. **Resolve once and cache forever.** |
-| `channels.getFullChannel` | `about`, `participants_count`, `linked_chat_id` (discussion group), pinned message, available reactions, `can_view_stats` (admins), and more. |
-| `messages.getHistory` | Up to **100 messages per call**, back to the first post. Each message has: `views`, `forwards`, `replies` (comment count plus the discussion group id), `reactions` (counts per emoji), `fwd_from` (source peer, original post id, original author, date), `edit_date`, `post_author`, `grouped_id` (albums), `media` (all types, including polls), `entities`, `factcheck`. |
-| `messages.getMessagesViews(ids, increment=false)` | Refreshes views, forwards and replies for many posts in one call. **We always pass `increment=false`.** Inflating view counters is exactly what Telegram bans. |
-| `messages.getMessagesReactions(ids)` | Refreshes reactions. |
-| `channels.getMessages(ids)` | Re-checks given posts. A deleted post comes back empty, which is how we **detect deletions and edits** without joining. |
-| `messages.getDiscussionMessage` and `messages.getReplies(channel, post_id)` | The **comment thread** of a post, which lives in the linked discussion group. TDLib: "Message thread of a channel message is in the channel's linked supergroup." Up to 100 per call. |
-| `messages.search(peer, q)` | Keyword search inside one channel. |
-| `channels.searchPosts(query or hashtag)` | **Keyword search across all public channels' posts.** See below. |
-| `channels.checkSearchPostsFlood(query)` | Shows the search quota without spending it: `total_daily`, `remains`, `wait_till`, `stars_amount`, `query_is_free`. |
-| `channels.getChannelRecommendations` | Similar channels (users only) [S]. |
-| `contacts.search(q)` | Find public channels and groups by name. |
-
-**Global post search, as it works now:**
-
-- **Full-text search:** each account has a daily free quota. After that the server answers `FLOOD_WAIT_<seconds>_OR_STARS_<n>`: wait, or pay *n* Stars per search (seen in TDLib's code) [V].
-- Paging through the **same query** is free ("repeated requests with the same query will be free") [V].
-- Up to 100 results per page [V].
-- **Hashtag and cashtag search** uses the same method without that payment path [V]; whether it has its own limits is [P0].
-- The 31 July 2025 announcement says post search is "initially available to Telegram Premium users", and some API layers list `PREMIUM_ACCOUNT_REQUIRED` [S].
-- It searches **posts in public channels**, not groups [V].
-- The free quota and the Stars price are set by the server: [P0], read with the free `checkSearchPostsFlood`.
-
-**Public groups:**
-
-- Official apps let you preview most public groups without joining. Whether our account can read their history and replies that way is [P0].
-- Joining would make the account **visible in the member list**, counts toward the 500/1000 limit, and may trigger the group's anti-spam or CAPTCHA bot. If a group needs that, **we stop there**; we never try to pass such checks automatically.
-- Member lists (`channels.getParticipants`) are **blocked in our code** unless you approve them.
-
-**What needs joining:**
-
-- *Push* updates (new posts, deletions pushed to us). Without joining we poll, which works but costs requests.
-- TDLib also notes that updates in channels are only received for "opened" chats.
-
-**What needs admin rights** [V]:
-
-- `stats.getBroadcastStats`: follower growth, views by source, languages, interactions.
-- This is only possible on **client-owned channels**, if the client makes our account an admin with the statistics right.
-
-**Errors to handle** [V/S]:
-
-| Error | Meaning |
-|---|---|
-| `FLOOD_WAIT_X` | Wait X seconds; per method and account; can be hours. |
-| `FLOOD_WAIT_X_OR_STARS_Y` | Post search quota used up. |
-| `FLOOD_PREMIUM_WAIT_X` | Download speed limit for non-Premium accounts. |
-| `FROZEN_METHOD_INVALID` | The account is **frozen**: read-only, with appeal only via @SpamBot [3P]. |
-| `CHANNEL_PRIVATE`, `USERNAME_INVALID`, `MSG_ID_INVALID`, `CHANNELS_TOO_MUCH` | Lost access, bad username, bad message id, join limit reached. |
-
-Telegram **publishes no numeric rate limits** [3P].
-
-| | |
-|---|---|
-| **Ban risk** | **Medium.** Unofficial-client logins are "under observation". New accounts and VoIP numbers are riskier: gotd's guide says "Do not use VoIP numbers" and "use it passively (i.e. receive more than sending)" [3P]. Bursts, many username lookups, joins and sending raise the risk. |
-| **ToS position** | API ToS (own api_id, no AI/ML, no view inflation, sponsored-message clause open) plus the scraping clause. |
-| **Libraries** | **gotd/td (Go):** "stable", v0.163.0 published 22 Oct 2026, pluggable session storage, FLOOD_WAIT and rate-limit middleware in gotd/contrib [3P]. It fits a Go stack. **TDLib:** official and robust, C++ with JSON; the Go wrapper is "WIP". **Telethon:** GitHub repo archived 21 Feb 2026, moved to Codeberg. **Pyrogram:** archived 23 Dec 2024, "no longer maintained". → **Recommendation: gotd/td.** |
-
-### 3.4 Official and third-party data services
-
-- **Official:** Telegram offers **no data API** for channels you don't own. Channel statistics exist only for that channel's admins (above).
-- **TGStat** (tgstat.com): a large index of public channels and chats with three APIs. Official price page via search, rubles, 5% VAT included [S]:
-  - **Search API** (post search and mentions): START 2,100 ₽, S 4,200 ₽, M 12,600 ₽, L 47,250 ₽ per month.
-  - **Stat API** (channel stats, mentions by period and by channel): free tier; S 2,100 ₽ (30 channels, 6,000 requests a month); M 8,190 ₽; L 20,370 ₽; XL 60,900 ₽.
-  - **Callback API** (real-time keyword and channel alerts): START 8,400 ₽, S 29,820 ₽, M 72,240 ₽, L 149,100 ₽.
-  - Unknowns: coverage of Iraqi and Kurdish channels; their terms on storing data; paying in rubles from Iraq. Scraping TGStat itself is forbidden by their user agreement [3P, Bellingcat toolkit].
-- **Telemetr.io, social-listening suites** (Brand24, YouScan, Talkwalker, Meltwater, Brandwatch) list Telegram as a source. Prices and coverage are not verified (sites blocked here).
-- **Scraping resellers** (Apify actors, ScrapeCreators' Telegram endpoints) mostly read the same web preview, or use *your* session. It is the same ToS problem, outsourced. I did not call any of them.
-- **Assessment:** a licensed index (TGStat or similar) is the most realistic way to find mentions *beyond* the channels we watch. It needs a trial, legal review and a payment route.
-
-### 3.5 Side-by-side
-
-✅ = yes · ◐ = partly · ❌ = no · [P0] = to be measured
-
-| Data | Logged out | Bot (owned chats only) | User account | Third-party |
+| Data | Logged out (chosen) | Bot | User account | Vendor |
 |---|---|---|---|---|
-| Channel title, username, description, photo | ✅ | ✅ | ✅ | ✅ |
-| Subscriber count | ✅ (exact or rounded: [P0]) | ✅ | ✅ exact | ✅ with history |
-| Linked discussion group | ◐ [P0] | ✅ | ✅ | ? |
-| Post text, time, links | ✅ | ✅ (new posts only) | ✅ | ✅ |
-| Media files | ◐ photos, small videos | ✅ ≤ 20 MB | ✅ (speed-limited without Premium) | ◐ |
-| Polls | ◐ percentages [P0] | ✅ | ✅ (results maybe only after voting; we never vote) [P0] | ? |
-| Forward source | ◐ name or link | ✅ | ✅ id and post | ◐ |
-| Views | ◐ rounded | ❌ | ✅ exact | ✅ |
-| Reactions | ✅ [P0 precision] | ✅ totals, delayed | ✅ | ◐ |
-| Forward count / comment count | ❌ / ◐ [P0] | ❌ / ❌ | ✅ / ✅ | ◐ |
-| Edits | ◐ flag only | ✅ | ✅ | ❌ |
-| Deletions | ◐ by absence | ❌ | ◐ by re-check (✅ pushed if joined) | ❌ |
-| History before we started | ✅ depth [P0] | ❌ | ✅ full | ✅ their archive |
-| Comments under posts | ◐ widget [P0] | ✅ (bot in discussion group) | ✅ | ◐ |
-| Public groups (messages, replies) | ❌ | ✅ only if admin or privacy off | ✅ without joining [P0], or join with approval | ◐ |
-| Member lists | — not collected — | — not collected — | blocked in code | — |
-| New-post delay | minutes (polling) | seconds | minutes (polling), seconds if joined | vendor-dependent |
-| Search inside one channel | ✅ | ❌ | ✅ | ✅ |
-| Search all public channels | ❌ | ❌ | ✅ (Premium, quota, Stars) | ✅ (paid) |
-| Admin statistics | ❌ | ❌ | ✅ if made admin | ❌ |
+| Channel info and changes | ✅ | ✅ | ✅ | ✅ |
+| Subscriber count | ✅ (rounding [P0]) | ✅ | ✅ exact | ✅ with history |
+| Posts: text, time, links, polls, forward source | ✅ (source as name or link) | ✅ new only | ✅ | ✅ |
+| Photos | ✅ | ✅ | ✅ | ◐ |
+| Videos and files | ◐ thumbnails, metadata | ✅ ≤ 20 MB | ✅ | ◐ |
+| Views | ◐ rounded | ❌ | ✅ | ✅ |
+| Reactions | ✅ | ✅ | ✅ | ◐ |
+| Forward count | ❌ | ❌ | ✅ | ◐ |
+| Comment count | ◐ [P0] | ❌ | ✅ | ◐ |
+| Edits | ◐ flag + text change | ✅ | ✅ | ❌ |
+| Deletions | ◐ by absence | ❌ | ◐ | ❌ |
+| History | ✅ depth [P0] | ❌ | ✅ | ✅ |
+| Comments | ◐ widget [P0] | ✅ | ✅ | ◐ |
+| Public groups | ◐ **one message per request** | ✅ if owner adds it | ✅ | ? [P0] |
+| Search inside a channel | ✅ | ❌ | ✅ | ✅ |
+| Search across all public channels | ❌ | ❌ | ✅ | ✅ |
 
 ---
 
-## 4. Recommendation
+## 5. Recommendation
 
-**Answer to "logged out, bot, or user account, and for which data?"**
+1. **Collect public channels logged out**, at a measured, steady rate from one IP, with priority tiers and automatic slow-down when capacity is short (§9.5). This is the core of the system.
+2. **Comments** through the comments widget, for P1 channels and keyword-matched posts. Phase 0 checks completeness against the post's comment count.
+3. **Public groups in "priority-groups mode":** read message by message through the post widget, for a limited, approved set. Size is set by Phase 0 cost; likely tens of groups, not thousands. Be clear with clients that **thousands of groups cannot be covered logged out**.
+4. **Mentions:**
+   - match every keyword on everything we collect, live;
+   - when a keyword is added, search our stored data (retroactive);
+   - optionally, search inside P1 channels with `?q=` to reach older history.
+5. **Discovery:** suggest new channels from forwards, @mentions and `t.me` links we see; a person approves each one.
+6. **Test TGStat in Phase 0** (5 keywords, a trial plan). If it covers Iraqi and Kurdish channels and groups, and you can pay, add it as an extra source for mentions outside our watched list. Otherwise skip it.
+7. **No AI/ML processing** of Telegram data, **no proxies or IP rotation**, **obey `robots.txt`**.
 
-| Way | Use it for |
+---
+
+## 6. What is realistic for each thing you asked for (logged out only)
+
+| You asked for | Realistic? | Notes |
+|---|---|---|
+| Channel title, username, description, photo, subscriber count | **Yes** | Profile page and feed header. Count precision [P0]. |
+| Linked discussion group | **Partly** | We can see that a post has comments (widget works). The group's own name/id may not be visible [P0]. |
+| How channel info changes over time | **Yes** | Snapshots; a new row only when something changes, plus count points. |
+| Post text, time, links, polls, forward source | **Yes** | Forward source as a name or link, not an id. |
+| Photos / videos / files | **Photos yes**; video and files metadata only | |
+| Views | **Rounded only** | "1.2K" means 1,150–1,249. Good for trends, not for exact numbers. |
+| Reactions | **Yes** | |
+| Forward count | **No** | |
+| Reply/comment count | **Maybe** [P0] | |
+| Edits | **Yes, without exact time** | We see the "edited" flag and the changed text at our next check. |
+| Deletions | **Partly** | "Gone between check A and check B". |
+| Comments under posts | **Likely**, completeness [P0] | |
+| Public groups (messages, replies; no member lists) | **Only a limited priority set** | One request per message. Member lists are never collected. |
+| New posts detected quickly | **Yes, by priority** | P1 ≈ 15 min at 1 req/s; faster if Phase 0 allows. |
+| History backfill per new channel | **Yes** | 90 days by default; deeper if needed [P0 depth]. |
+| Mentions across public channels | **Complete for watched channels.** Outside them: only via a vendor, or by growing the watch list from discovery suggestions | |
+| Dynamic keywords | **Yes** | Live matching plus retroactive search over stored data (§9.11). |
+
+---
+
+## 7. What I still need from you
+
+Only things I can't decide for you:
+
+1. **The lists:**
+   - channels and public groups (usernames or public `t.me/<name>` links; invite links are rejected), each with a priority tier (P1/P2/P3) and a reason (competitor, brand-related, watch);
+   - the first set of keywords, with languages and variants.
+   - Rough counts are enough to size the server; I assumed **3,000 channels and 1,000 groups**.
+2. **A Linux server** (I recommend below) and your OK to run Phase 0 on it. Phase 0 uses the same IP address the real system will use.
+3. **Budget OK** for about US$45–60 a month, and whether to try TGStat (paid in rubles).
+4. **Who reads alerts and erasure requests** (an email address or a webhook URL), configured on the server, never in the repo.
+
+---
+
+## 8. Requirements and monthly cost
+
+### 8.1 Checklist
+
+| Item | Notes |
 |---|---|
-| **Logged out (default)** | Public channels we don't own: channel info and its changes over time, posts, rounded views, reactions, polls, forward sources (names), history backfill, search inside each watched channel. |
-| **Bot** | Channels and groups **our clients own**, where they add it as admin: new posts within seconds, edits, reaction totals, every comment, group messages. Add nothing else to it. |
-| **One user account** (you decide which; see §7.2) | Only what the others can't do: (1) public groups we don't own; (2) complete comment threads and exact comment counts; (3) exact views and forwards; (4) deletion checks; (5) keyword search across all public channels (needs Premium); (6) similar-channel discovery; (7) channels without a web preview; (8) admin statistics on client channels, if a client makes it admin. Read-only, slow and steady, **no joins** unless you approve a specific public group. |
-| **Third-party (optional)** | Licensed mention discovery across channels we don't watch, if budget, legal review and payment allow. |
+| Channel, group and keyword lists | §7. |
+| One Linux server (Ubuntu 24.04 LTS) with a fixed public IPv4 | **Hetzner CX43** (8 vCPU, 16 GB RAM, 160 GB disk) in an EU location, plus a **250 GB volume** for Postgres. If CX is unavailable, a dedicated CCX plan. |
+| S3-compatible object storage | Hetzner Object Storage, for photos and backups. |
+| Docker and Docker Compose on the server | Commands in §10. |
+| Telegram account, bot token, phone number, api_id | **None.** |
+| Proxies | **None.** IP rotation would be getting around Telegram's limits. |
+| Optional vendor | TGStat trial (Phase 0), then a plan if useful. |
+| Secrets on the server | Database password, S3 keys, vendor API key (if any), alert webhook. In `/etc/securebrand-tg/` (`0600`); never in git, logs or chat. |
 
-**Conditions:**
+### 8.2 Monthly cost
 
-- Legal sign-off on §2 before collecting third-party channels.
-- No ML on Telegram data until it is cleared.
-- **Phase 0 decides the final split.** The design keeps the split as configuration per channel and per data type, so we can move a data type from "web" to "account" or the reverse without code changes.
+Prices come from search summaries and third-party reviews [S/3P]; Hetzner pages are blocked here. Hetzner raised prices on 1 April and 15 June 2026, and new-server availability has been limited since late June 2026 [3P]. Check live prices.
 
-**Why not "user account for everything"?**
+| Item | ≈ per month |
+|---|---|
+| Hetzner CX43 | €16.5 |
+| Server backups (+20%) | €3.3 |
+| 250 GB volume | €12–15 |
+| Object storage (1 TB + 1 TB egress included) | €6.49 |
+| **Total** | **≈ €40–45 ≈ US$45–55** |
+| *If a dedicated CCX server is needed instead* | add ≈ €70+ |
+| *Optional TGStat* | Search API from 2,100 ₽ (START) to 12,600 ₽ (M); Stat API from 2,100 ₽ |
 
-- It puts all the load and all the ban risk on one account.
-- If it is banned or frozen we lose everything at once.
-- Logged-out collection spreads the load and keeps the system working when the account is paused.
+### 8.3 Storage estimate
 
-**Why not "logged out only"?**
+Assumptions: 3,000 channels × 8 posts a day ≈ **24,000 posts a day**; comments for P1 channels and matched posts; 30 priority groups.
 
-- No public groups.
-- No reliable comments.
-- No cross-channel search.
-- Only rounded numbers.
-
----
-
-## 5. What is realistic for each thing you asked for
-
-| You asked for | Realistic? | How |
-|---|---|---|
-| Channel title, username, description, photo, subscriber count, linked group | **Yes** | Logged out (profile + feed header). Account for the exact count and `linked_chat_id`. Bot for owned channels. |
-| How these change over time | **Yes** | Snapshot on a schedule (§8.5). Store a row only when something changes, plus regular subscriber-count points. |
-| Post text, time, links | **Yes** | All three ways. |
-| Media (photos, video, files, polls) | **Mostly** | Photos and small videos logged out. Big files only with the account or the bot. Poll results may need the user to vote, and we **never vote** [P0]. |
-| Forwards and their original source | **Yes** | Logged out gives the source name and link. The account gives the source channel id and original post id. |
-| Views | **Yes**, exact only with the account | Logged out: rounded. Bot: none. |
-| Reactions | **Yes** | All three (bot: totals only, delayed). |
-| Forward count, reply count | **Account only** (reply count possibly logged out [P0]) | |
-| Edits | **Yes** | Flag logged out. Full versions with the account or the bot. |
-| Deletions | **Partly** | Detected by re-checking (we know "deleted between check A and check B", not the exact time). Pushed in real time only if the account joins. |
-| Comments under posts (discussion group) | **Yes with the account**; bot for owned channels; widget [P0] | §8.8 explains how we keep them complete. |
-| Public groups: messages and replies, no member lists | **Account only** (or bot if the owner adds it) | Read without joining if possible [P0]; join only with your approval. Member lists are blocked in code. |
-| New posts detected quickly | **Yes** | Bot: seconds. Others: polling every 2–60 minutes by priority (§8.5). |
-| History backfill for each new channel | **Yes** | Logged out (depth [P0]) or account (full). Comments backfill limited to recent posts (you choose how far). |
-| Mentions of our keywords across public channels | **Partly** | (a) **Complete** for every channel and group we watch (we match locally on everything we collect). (b) **Partial** across all other public channels via the account's post search (quota, Premium) and/or a paid index like TGStat. (c) **Never** in private chats or groups. Public groups are not covered by Telegram's global post search. |
+| Data | First year |
+|---|---|
+| Posts | ≈ 9 M rows ≈ 18 GB |
+| Metric snapshots | ≈ 15 GB |
+| Comments and group messages | ≈ 10–20 GB |
+| Search indexes | ≈ 15–25 GB |
+| 90-day backfill | ≈ 4 GB |
+| **Postgres total** | **≈ 60–80 GB** → the 250 GB volume is enough for 2+ years |
+| Photos (P1 and matched posts only, 90-day retention) | ≈ 30–60 GB steady, inside the 1 TB object storage |
 
 ---
 
-## 6. Clarifying questions (all at once)
+## 9. Architecture
 
-**Scope and size**
+### 9.1 Principles
 
-1. How many of each: (a) brand-owned channels, (b) competitor channels, (c) other public channels to watch, (d) public groups? What growth do you expect in 12 months?
-2. The brand names and keywords: how many? Which languages and scripts: Arabic, Kurdish (Sorani and/or Kurmanji), English, transliterations ("Franco-Arabic"), common misspellings?
-3. How fresh must data be?
-   - New posts from brand channels: 1 minute? 5? 30?
-   - New posts from competitor and other channels?
-   - New keyword mentions (alert delay)?
-4. How far back should backfill go for a new channel: all history, 12 months, 90 days? And for comments and group messages?
-5. For how long after publishing should we keep re-checking a post's views, reactions and comments: 7, 30 or 90 days?
+- **Read-only and logged out.** The only outgoing requests are GETs to `t.me` pages and Telegram's image CDN.
+  - No login, no forms.
+  - We never vote in polls or react.
+  - We never follow invite links (`t.me/+…`, `joinchat`); the registry rejects them.
+- **One fixed IP, honest User-Agent, `robots.txt` obeyed, `429` and `Retry-After` obeyed, no proxies.**
+- **Everything goes through one capacity manager** (§9.5). No code can call Telegram without it.
+- **Minimal data:** only fields we use; raw HTML is parsed in memory and thrown away.
+- **Privacy at the door:** the suppression list and pseudonymization apply **before** anything is stored or sent on.
+- **Rules only, no AI/ML** on Telegram data.
+- Telegram dates are stored in UTC; reports and alerts show Iraq time.
 
-**Media**
-
-6. Metadata only, thumbnails, full photos, or also videos and files? Any size cap? Which analysis service would receive media, and **does it use ML** (see §2.2)?
-
-**Clients, accounts and money**
-
-7. Monthly budget for this system (servers plus Telegram plus any vendor)?
-8. Do clients own some of these channels or groups? Would they add our bot as admin (and to the discussion group)? Would any make our user account an admin so we can read official statistics?
-9. A user account is needed for groups, complete comments and global search (§3.3, §7.2). **Which account?** It should be a company-owned SIM on a real carrier (no VoIP), used normally in the official app. Should it have **Premium** for global search?
-10. Public groups: may the account **join** a public group when it can't be read otherwise? Yes or no per group, or never?
-11. Comments: all comments on all watched posts, or only on brand-owned posts and matched mentions? Replies to comments too?
-
-**Legal and privacy**
-
-12. Who gives the legal opinion on Telegram's terms (§2)? Should I prepare a short brief for that lawyer? Would you like to ask Telegram for written permission?
-13. Which data-protection laws apply: are any clients or monitored people in the EU or UK (GDPR)? Do you have a DPO or legal adviser?
-14. Default retention periods (proposal in §8.12) and whether **author pseudonymization is on by default**. Who handles erasure requests?
-
-**Infrastructure and outputs**
-
-15. Should I reuse the Facebook project's patterns and infrastructure (same Postgres, Kafka/Redpanda, Valkey, S3, monitoring)? If yes, **please attach `Abdullah95k/securebrand-microservices`** so I can check what fits Telegram. Same cluster, or separate?
-16. Where does the server run (Hetzner? your own?), what size, and what monitoring stack do you use?
-17. Who consumes the data: a dashboard, alerts (by email, Slack or Telegram), an API for the SecureBrand platform?
-18. Are you open to paying a licensed index (TGStat or similar) for wider mention discovery, and can you pay in rubles?
-19. Is GitHub Actions fine for CI?
-
----
-
-## 7. What you need to provide, and the monthly cost
-
-### 7.1 Checklist
-
-| Item | Needed for | Notes |
-|---|---|---|
-| Lists of channels, groups and keywords | Everything | With the reason for each (brand, competitor, watch) and the client it belongs to. **Usernames or public `t.me/<name>` links only; invite links (`t.me/+…`, `joinchat`) are rejected.** |
-| Legal opinion on §2 | Before collecting third-party channels | |
-| A Linux server | Everything | See §7.3. |
-| Storage | Posts, metrics, media | Postgres volume plus S3-compatible bucket (§7.3). |
-| **Bot token** (from @BotFather) | Client-owned channels | Only if a client agrees to add the bot. Stored on the server only (§8.13). |
-| **One user account:** real phone number on a company-owned SIM; Telegram account in the official app; 2FA password; `api_id`/`api_hash` from my.telegram.org with that number | Groups, comments, global search, exact counts | You decide which account. Optional Premium. |
-| Proxies | **None** | We do not rotate IPs to dodge limits. That would be circumventing Telegram's protections. One stable server IP is better for the account too. |
-| Optional: TGStat (or similar) subscription | Wider mention discovery | After a trial and legal check. |
-
-### 7.2 Why a user account is needed, and the rules for it
-
-**Why:**
-
-- Public groups we don't own can't be read any other way.
-- Complete comments and exact counts need it.
-- Cross-channel keyword search is account-only.
-
-**Rules:**
-
-- It must be a **real, company-controlled number**: never bought, borrowed or virtual (VoIP).
-- Use the account normally in the official app for a while before connecting our software.
-- Turn on 2FA and a recovery email.
-- Don't use a staff member's personal account: a ban would take their private chats with it.
-- Register **our own** api_id for that number. The app title must not contain "Telegram".
-- Log in from **one** server only and keep it stable.
-- If it gets frozen we **stop and tell you**; we never create a replacement account on our own.
-
-### 7.3 Estimated monthly cost
-
-Vendor pages are blocked here. These prices come from search summaries of Hetzner's and TGStat's price pages and third-party reviews [S/3P]. Please check them live.
-
-Hetzner raised prices on 1 April and 15 June 2026, and new-server availability has been limited since late June 2026 [3P].
-
-| Item | Small scale (≈200 channels, 20 groups) | Notes |
-|---|---|---|
-| Server: Hetzner CX43 (8 vCPU, 16 GB, 160 GB) | ≈ €16.5 | Enough for a standalone stack (Postgres, Redpanda, Valkey, services). Dedicated CCX23 (4 vCPU, 16 GB) ≈ €86 if CX is unavailable. |
-| Server backups (+20%) | ≈ €3.3 | |
-| Extra volume for Postgres (100 GB) | ≈ €5–6 | |
-| Object storage (S3) | €6.49 | Includes 1 TB storage and 1 TB egress. |
-| Telegram Premium for the account | ≈ US$5 | US App Store price $4.99/month [3P]; varies by country. Only if global search is wanted. |
-| Telegram Stars for searches beyond the free quota | US$0–20 | 100 Stars ≈ US$2 [3P]. Real need measured in Phase 0. |
-| SIM line | your carrier's price | Keep it active: losing the number can mean losing the account. |
-| **Total, standalone** | **≈ €32 + US$5–25 → roughly US$40–65/month** | With CCX23 instead: ≈ US$115–145. |
-| **Total, reusing the Facebook project's cluster** | **≈ €10–15 + US$5–25** | Mainly extra storage. |
-| Optional TGStat | from 2,100 ₽/month (Stat S) to 12,600 ₽ (Search M); real-time Callback from 8,400 ₽ | Convert at the current rate. |
-
-**Storage estimate**
-
-Assumptions for the small scale: 200 channels × 8 posts a day; 20% of posts get on average 30 comments; 20 groups × 300 messages a day.
-
-| Data | Per month | First year |
-|---|---|---|
-| Posts | ≈ 48k rows | |
-| Metric snapshots | ≈ 0.6M rows | |
-| Comments | ≈ 290k | |
-| Group messages | ≈ 180k | |
-| Postgres total | | ≈ **10–15 GB** including indexes and a 3,000-post backfill per channel. At 1,000 channels: ≈ 50–75 GB. |
-| Photos (90-day retention) | | ≈ **20 GB** steady. |
-| Videos (if downloaded fully) | can reach 100s of GB | Proposal: metadata and thumbnail by default. Full video only for brand-owned posts and matched mentions, with a size cap. |
-
----
-
-## 8. Architecture
-
-### 8.1 Principles
-
-- **Read-only by construction.** The account and bot code has an **allowlist of permitted methods**. Sending, joining, voting, reacting, marking read, view increments, invite-link methods (`checkChatInvite`, `importChatInvite`) and member-list methods are blocked in code. `joinChannel` is only allowed for public chats you approved in the registry.
-- **One adapter per access way**: `web`, `bot`, `mtproto`, later `vendor`. All produce the same normalized records. A **collection plan** per source says which adapter handles which data type.
-- **Every request goes through the rate limiter.** No code path can call Telegram without passing it.
-- **Minimal data:** collect only fields we use, no raw-response archives, no member lists.
-- **Privacy at the boundary:** the suppression list and pseudonymization are applied **before** anything is written or published.
-- **Telegram timestamps are UTC.** We store UTC; reports and alerts show Iraq time.
-
-### 8.2 Components
+### 9.2 Components
 
 ```
-                 ┌──────────────── registry (sources, keywords, clients, approvals, suppression) ──────┐
-                 │                                                                                    │
-            ┌────▼─────┐   due tasks    ┌───────────────┐
-            │scheduler │──────────────▶ │  rate limiter │  (Valkey: budgets, pauses, circuit state)
-            └────┬─────┘                └──────┬────────┘
-                 │ jobs (Kafka topics or Postgres queue)
-     ┌───────────┼───────────────┬───────────────────┐
-┌────▼────┐ ┌────▼─────┐ ┌───────▼───────┐ ┌─────────▼─────────┐
-│web      │ │mtproto   │ │bot receiver   │ │vendor (optional)  │
-│collector│ │worker    │ │(webhook)      │ │TGStat etc.        │
-│(t.me)   │ │(1 per    │ │               │ │                   │
-│         │ │ account) │ │               │ │                   │
-└────┬────┘ └────┬─────┘ └───────┬───────┘ └─────────┬─────────┘
-     └───────────┴───── normalized records ───────────┘
-                         │
-                 ┌───────▼────────┐   suppression check, pseudonymization, dedupe, versions
-                 │ normalizer /   │──────────────▶ Postgres (sources, posts, versions, metrics,
-                 │ ingest         │                comments, group messages, mentions, audit)
-                 └───┬───────┬────┘
-                     │       └──────▶ media fetcher ──▶ S3 (with size caps, retention)
-                     ▼
-              mentions matcher ──▶ alerts / API / dashboard
-                     ▲
-     privacy service: retention jobs, erasure, suppression list, audit
+ registry (channels, groups, tiers, keywords, approvals, suppression list)
+      │
+      ▼
+ scheduler ──▶ capacity manager (one budget for the IP; priorities; 429/Retry-After; circuit breaker)
+      │                    │
+      ▼                    ▼
+ fetcher workers (feed pages, profiles, post widget, comments widget, in-channel search, images)
+      │   parse in memory → normalized records
+      ▼
+ ingest (suppression check, pseudonymize, dedupe, versions, metrics) ──▶ Postgres
+      │                                                                   ▲
+      ├──▶ mention matcher (live) ──▶ mentions ──▶ outbox ──▶ API / webhooks (Kafka later)
+      │                                   ▲
+      │        retro search job (when keywords change) ──┘
+      ├──▶ discovery (forwards, @mentions, t.me links) ──▶ review queue
+      └──▶ image fetcher (P1 + matched only) ──▶ object storage
+ privacy service: retention, erasure, suppression, audit      monitoring: Prometheus, Grafana, alerts
 ```
 
-### 8.3 Services (Go)
+### 9.3 Services (Go, one repository, deployed with Docker Compose)
 
 | Service | Job |
 |---|---|
-| `tg-registry` | API and CLI for sources, keywords, clients, approvals (for example "may join group X"), and the suppression list. Rejects invite links and private chats. |
-| `tg-scheduler` | Computes what is due: profile checks, new-post polls, metric refreshes, comment syncs, deletion checks, backfill steps, searches. Writes jobs. |
-| `tg-web` | Logged-out collector and HTML parser. Selectors live in one versioned file, as TeleGlance does. |
-| `tg-mtproto` | **One process per account.** Owns the encrypted session; gotd/td with our limiter and method allowlist. Never runs twice at once for the same account. |
-| `tg-bot` | Bot API webhook (or long polling) receiver for owned chats. |
-| `tg-ingest` | Normalizes, checks the suppression list, pseudonymizes, dedupes on (chat id, message id), stores versions and metrics, emits events. |
-| `tg-media` | Downloads allowed media within size and type caps to S3. Hands off to analysis only if that is legally cleared. |
-| `tg-mentions` | Local keyword matching on everything ingested; runs scheduled global searches; puts discovered unknown channels in a **review queue** (never auto-adds). |
-| `tg-privacy` | Retention deletes, erasure requests, suppression list, audit log, propagation of erasures to downstream systems. |
+| `registry` | API and CLI for channels, groups, tiers, keywords, approvals, suppression list. Validates usernames, rejects invite links and private chats. |
+| `scheduler` | Decides what is due: new-post checks, metric refreshes, comments, group polls, profile snapshots, backfill steps, deletion checks, in-channel searches. |
+| `fetcher` | Workers that make the HTTP requests through the capacity manager and parse the pages. Selectors live in **one versioned file**, so a markup change is a one-file fix. |
+| `ingest` | Normalizes, checks suppression, pseudonymizes, dedupes on (chat, message id), stores versions and metric snapshots, writes the outbox. |
+| `matcher` | Live keyword matching on every new or edited item; the retroactive search job; discovery suggestions. |
+| `media` | Downloads photos for P1 and matched posts, within size caps. |
+| `privacy` | Retention deletes, erasure requests, suppression list, audit log. |
+| `api` | REST API for SecureBrand (mentions, posts, channels, metrics) and outgoing webhooks from the outbox. |
 
-**Shared:** Postgres, Valkey, S3, and Redpanda (Kafka) if we reuse the Facebook stack. At small scale a Postgres job queue (`FOR UPDATE SKIP LOCKED`) would also do. Question 15 decides this.
+**Shared:** Postgres 16 (with `pg_trgm`), Valkey (capacity state, locks, caches), object storage, Prometheus, Grafana, Alertmanager.
 
-### 8.4 Data model (main tables)
+**Jobs** use a Postgres queue (`FOR UPDATE SKIP LOCKED`), which is simple and enough at this scale. The outbox can publish to Kafka later if SecureBrand's platform wants it.
+
+### 9.4 Data model (main tables)
 
 | Table | Contents |
 |---|---|
-| `sources` | Telegram peer id, kind (channel, group), current username, reason (brand, competitor, watch), client, priority tier, collection plan per data type, approvals, status. |
-| `peer_cache` | `access_hash` per account and peer (not secret, but bound to that account), when resolved. Means **resolve once**. |
-| `source_snapshots` | Title, username, description, photo hash, linked group, subscriber count, captured time. A new row **only when something changed**, plus periodic count points. |
-| `posts` | Chat id, message id, date, text and entities, media summary, forward source (peer id, name, original post id, original author, date), reply-to, album id, signature (**personal data**: pseudonymizable), edit date, first and last seen, content hash, `deleted_detected_at`, `deleted_window` (between which checks). |
-| `post_versions` | Previous text and media of edited posts. |
-| `post_metrics` | Append-only: views, forwards, replies, reactions (JSON), captured time, source adapter, and an `exact` flag (web = rounded). |
-| `comments` and `group_messages` | Chat id, message id, thread root (post), reply-to, `author_key`, date, text, edit date, deletion info. |
-| `authors` | `author_key` (keyed hash). Display name and username only when pseudonymization is off, encrypted. |
-| `media` | Post or comment reference, type, size, mime type, S3 key, sha256, status, expiry. |
-| `keywords` and `mentions` | Keyword variants and normalization rules; matches with location, how found (local, channel search, global search, vendor). |
-| `erasure_requests`, `suppression_list`, `audit_log` | Privacy (§8.12). |
+| `sources` | Username, kind (channel, group), tier, reason, client, status (active, no-preview, not-found, suppressed), collection settings, approvals. |
+| `source_snapshots` | Title, description, photo hash, subscriber count; a new row only on change, plus regular count points. |
+| `posts` | Chat, message id, date, text and entities, media summary, forward source (name, link, original post link), reply-to, album, signature (**personal data**, pseudonymizable), edited flag, content hash, first and last seen, deletion window. |
+| `post_versions` | Old text and media after edits. |
+| `post_metrics` | Append-only: views (rounded value and text as shown), reactions (JSON), comment count, captured time. |
+| `comments` and `group_messages` | Chat, message id, thread (post), reply-to, `author_key`, date, text, edited flag, deletion window. |
+| `authors` | `author_key`; names only if pseudonymization is off, encrypted. |
+| `keywords` | Client, term, variants, language, match type (word, phrase, hashtag, @username, domain), exclusions, active from/to, version. |
+| `mentions` | Keyword, item, matched text position, how found (live, retro, in-channel search, vendor), keyword version. |
+| `discovery_candidates` | Username, how often seen, from where, keyword hits, review status. |
+| `media` | Item, type, size, S3 key, sha256, expiry. |
+| `outbox`, `erasure_requests`, `suppression_list`, `audit_log` | Delivery to SecureBrand; privacy. |
 
-### 8.5 Scheduling: how often things are re-checked
+`posts`, `comments`, `group_messages` and `post_metrics` are **partitioned by month**, so retention deletes are cheap (drop a partition).
 
-All numbers are **starting points for Phase 0 to adjust**.
+### 9.5 Capacity: how thousands of channels share one IP
 
-- **New-post detection, by tier:**
-  - Owned channels with the bot: push, seconds.
-  - **Hot** (brand-owned without bot, main competitors): every **2–5 min**.
-  - **Normal:** every **15–20 min**.
-  - **Cold:** every **60 min**.
-  - Each channel's interval adapts to how often it posts (fast posters checked more often, quiet ones less), within the tier's limits.
-  - Night slow-down **01:00–07:00 Iraq time** (intervals × 2), unless the channel posts at night.
-- **One logged-out request does two jobs.** A feed page returns the newest ~20 posts *with* their views and reactions. The "new post" poll therefore also refreshes metrics of recent posts for free.
-- **Metric refresh by post age** (views, reactions, forwards, comment count): at **15 min, 1 h, 3 h, 6 h, 12 h, 24 h, 2 d, 3 d, 7 d, 14 d, 30 d**, then stop. Brand-owned posts continue weekly up to 90 days.
-  - Posts due together are refreshed together: one feed page (~20 posts) or one `getMessagesViews` call (many ids).
-- **Channel profile:**
-  - Brand and competitor channels: 4× a day at about **00:00, 06:00, 12:00 and 18:00 Iraq time** (± random jitter of a few minutes).
-  - Others: once a day at about **04:00 Iraq time**.
-- **Comments:** see §8.8. **Deletions:** see §8.9.
-- **Backfill of a new channel:**
-  1. Resolve once and read the profile.
-  2. Walk history from newest to oldest down to the depth you choose, using at most **30% of the budget**, at low priority.
-  3. Pause on any limit and resume from a saved cursor.
-  4. Then comments for the last *N* days of posts.
-- **Global keyword search:** spread evenly over the day within the daily free quota (read via `checkSearchPostsFlood`). Paid searches only within a monthly Stars budget you set.
+- Phase 0 measures the **safe rate R** for our IP: the highest rate with no `429` over several days, times about 0.7.
+- The capacity manager hands out requests in priority order:
 
-**Example request budget**
-
-Small scale, logged out: 50 hot channels at 5 min, 100 normal at 20 min, 50 cold at 60 min, plus deeper refreshes, profiles and comment widgets.
-
-| Task | Requests per day |
-|---|---|
-| Hot channels (50, every 5 min) | 14,400 |
-| Normal channels (100, every 20 min) | 7,200 |
-| Cold channels (50, every 60 min) | 1,200 |
-| Deeper metric refreshes | ≈ 1,000 |
-| Profiles | ≈ 200 |
-| Comment widgets | ≈ 1,000 |
-| **Total** | **≈ 25,000 ≈ one request every 3.5 s** |
-
-The account would do only its special jobs: comments, groups, search, exact counts, deletion checks. Target **≤ 15,000 calls a day**, never more than about 1 per second.
-
-### 8.6 Rate limiting that respects FloodWait
-
-- **Budgets are kept per credential** (each account, each bot, the server's IP for t.me) **and per method or endpoint**, as token buckets in Valkey. Examples:
-  - `resolveUsername`: a few per hour, hard daily cap.
-  - `getHistory` and `getReplies`: shared steady rate.
-  - `searchPosts`: daily quota.
-- **FLOOD_WAIT_X:**
-  1. Pause that method on that account for **X seconds plus 10–20% random extra**, and never retry earlier.
-  2. Pause the **whole account** if X > 5 min.
-  3. Reduce that method's budget by half (AIMD: then raise it slowly by about 5% per quiet hour).
-  4. Record X in metrics.
-  5. If X > 1 h, open the **circuit** for that account, alert you, and move eligible work to the logged-out adapter.
-
-  gotd/contrib has a FLOOD_WAIT middleware ("Default is to wait at most a minute", up to 5 retries) [3P]. We use our own wrapper so long waits are **parked**, not slept inside a request, and are visible across restarts.
-- **`FLOOD_WAIT_X_OR_STARS_Y`** (search): treat as "quota used up"; pay only if the job explicitly allows it and the Stars budget has room.
-- **`FLOOD_PREMIUM_WAIT_X`:** slow media downloads only.
-- **`FROZEN_METHOD_INVALID`:** stop **all** account work immediately, alert, wait for you.
-- **Logged out:**
-  - Honour HTTP 429 and `Retry-After` exactly.
-  - Back off exponentially on 5xx.
-  - A circuit breaker per host.
-  - If we ever get a challenge page or CAPTCHA, **we stop and alert**; we never try to get past it.
-- **Phase 0 sets the steady-state budgets at about half** of the highest rate that showed no limits.
-
-### 8.7 Retries and failure handling
-
-- Jobs are idempotent: writes are upserts on (chat id, message id). Delivery is at-least-once.
-- Retries use exponential backoff with jitter (1 s → 2 s → 4 s … up to 15 min), with a maximum number of attempts per job type. After that the job goes to a **dead-letter queue** with a reason, and a dashboard shows the count.
-- Telegram-side limits are **not** retried by the generic retry loop. They go through §8.6.
-- **Parser failures** (unknown HTML) are counted per selector. Above 5% failures, alert "markup changed" and fall back to the account for affected data if allowed.
-- The account process keeps its updates state and backfill cursors in Postgres, so a restart continues where it stopped.
-
-### 8.8 Keeping comments complete
-
-- **Target number:** the post's comment counter (`replies.replies` from the account, or the counter from the web preview if Phase 0 finds one). This counts all replies in the thread, including replies to replies.
-- **Incremental fetch:** when a refresh shows the counter went up, fetch only newer comments: `getReplies(…, min_id = last seen comment id)`, paging until done.
-- **Full reconciliation** of the whole thread at **1 h, 24 h and 7 d** after the post (and 30 d for brand-owned posts):
-  - ids that disappeared → deleted;
-  - changed `edit_date` → new version.
-- **Completeness metric** = comments we have (not deleted) ÷ counter. If it is below **98%** after reconciliation, re-sync that thread and alert if it stays low.
-- **Owned channels:** the bot in the discussion group receives every comment live. The account (if available) still runs the reconciliation, because bots never see deletions.
-- **Logged-out widget:** used only if Phase 0 shows it returns complete threads. Otherwise only as a "something new" signal.
-
-### 8.9 Edits and deletions
-
-- **Edits:** detected by `edit_date` or a changed content hash (account or bot), or by the "edited" marker and a changed hash (web). We store the old version in `post_versions`.
-- **Deletions without joining:**
-  - re-check known ids with `channels.getMessages` in batches at **1 h, 24 h, 7 d, 30 d**: an empty result means deleted;
-  - logged out: the id is missing from the feed between neighbours, confirmed by the single-post page.
-  - We record **the window** ("between 10:00 and 11:00 Iraq time"), not a false exact time.
-- **What we keep after a deletion** (your choice, question 14). Proposal:
-  - keep **channel posts** with a deleted flag (useful for competitor monitoring);
-  - for **comments and group messages** by people, remove the text within 30 days and keep only counts.
-
-### 8.10 Media
-
-- Defaults: metadata always; photos and thumbnails; videos and files only for brand-owned posts and matched mentions, capped at 20 MB (configurable).
-- Store a sha256 to avoid duplicates. S3 objects are deleted on retention expiry or erasure.
-- **No hand-off to the analysis service** for Telegram data until §2.2 is resolved.
-
-### 8.11 Mentions
-
-1. **Local matching (complete for watched chats):**
-   - Runs on all posts, comments, group messages, captions, link previews, poll text and file names we collect, plus @mentions of brand usernames, links to brand domains, and **forwards from brand channels** (shares).
-   - Text normalization for Arabic and Kurdish: remove diacritics and tatweel; unify alef forms (أ إ آ → ا) and ى/ي; optionally ة/ه.
-   - Script-aware handling of Kurdish letters (ک ی ە ۆ ێ) so we don't break words.
-   - Latin case folding; per-keyword variant lists and exclusions you maintain.
-2. **Per-channel search** to backfill mentions in a newly added channel without downloading its whole history: `?q=` logged out, or `messages.search` with the account.
-3. **Global discovery:**
-   - the account's `channels.searchPosts` for each keyword, within quota (Premium);
-   - hashtag search for brand hashtags;
-   - "similar channels" for competitors.
-   - Unknown channels found this way go to a **review queue**; you decide whether to watch them.
-4. **Optional vendor** (TGStat Search or Callback) for wider coverage.
-
-### 8.12 Personal data: retention, pseudonymization, erasure, suppression
-
-**Data classes and proposed default retention** (you decide):
-
-| Class | Examples | Default |
+| Order | Task | Share |
 |---|---|---|
-| Channel metadata | title, subscribers | while watched + 12 months |
-| Channel posts | text, metrics | 24 months; metric snapshots thinned to daily after 90 days |
-| People's content | comments, group messages | **12 months** |
-| Author identities | user id, name, username | tied to their content; pseudonymized by default |
-| Media | photos, video | **90 days** |
-| Raw responses | — | **not stored.** Debug captures only on the server, encrypted, deleted after 72 h, never in git |
+| 1 | P1 new-post checks | |
+| 2 | Comments for P1 and matched posts | |
+| 3 | P2 new-post checks | |
+| 4 | Priority groups | |
+| 5 | Metric refreshes not covered by feed polls | |
+| 6 | P3 new-post checks | |
+| 7 | Profile snapshots | |
+| 8 | Backfill and retroactive in-channel searches | at most 15% |
 
-**Pseudonymization (per client switch):**
+- **One feed request does two jobs.** A feed page returns the newest ~20 posts *with* their views and reactions. Checking for new posts therefore also refreshes metrics of recent posts at no extra cost.
+- **Adaptive per channel:**
+  - Channels that post rarely, or only at certain hours, are checked less often, within their tier's maximum delay.
+  - Night hours **01:00–07:00 Iraq time** are slower unless a channel posts at night.
+  - A channel that posts more than ~20 times between checks gets extra pages so nothing is missed.
+- **When demand is higher than R,** lower tiers stretch automatically and the dashboard shows the real freshness achieved per tier. Nothing breaks; P3 just gets slower.
 
-- `author_key = HMAC-SHA256(secret_key, "tg:user:" + user_id)`, with a separate key per client so the same person can't be linked across clients.
-- With pseudonymization on, names and usernames are **not stored**. We also keep `HMAC(username)` at collection time, so an erasure request by username can still find the rows.
-- Signed post authors (`post_author`) are handled the same way.
-- Public channels themselves are organizations, not people, and are not pseudonymized.
+**What freshness 3,000 channels can get** (300 P1, 900 P2, 1,800 P3; 70% of capacity for new-post checks, before adaptive savings):
 
-**Erasure** (CLI and API; every request audited):
+| Safe rate from one IP | P1 checked every | P2 every | P3 every |
+|---|---|---|---|
+| 0.5 request/s | 30 min | 2 h | ~8.5 h |
+| **1 request/s** | **15 min** | **1 h** | **~4.3 h** |
+| 2 requests/s | 5 min | 1 h | ~3.3 h (or P1 10 min, P2 30 min, P3 75 min) |
 
-- **By person** (user id or @username):
-  1. Add the person to the **suppression list first**, so nothing new arrives during deletion.
-  2. Delete their comments, messages, signatures, mentions and media rows, plus the S3 objects.
+At 5,000+ channels everything is proportionally slower. A vendor or a narrower list would then be the way to keep freshness.
+
+### 9.6 Rate limiting, retries and circuit breaker
+
+- **429:** wait exactly `Retry-After` (or 60 s if missing) plus random extra. Lower R by half, then raise it slowly (~5% per quiet hour) back to the measured safe rate, never above it.
+- **5xx and timeouts:** exponential backoff with jitter (1 s → … → 15 min), with a maximum number of attempts per job type, then a **dead-letter queue** with the reason.
+- **Circuit breaker:** after repeated failures, pause all fetching for a while and alert. A challenge or CAPTCHA page means **stop everything and alert**; we never try to get past it.
+- **Idempotent jobs:** writes are upserts on (chat, message id), so a retried job is harmless.
+- **Parser drift:** if more than 5% of pages fail to parse, or a known field disappears, alert "markup changed" and keep raw counters, not raw HTML.
+
+### 9.7 Schedules
+
+**New-post checks:** by tier and adaptivity (§9.5).
+
+**Metric refresh by post age** (views, reactions, comment count):
+
+- at 15 min, 1 h, 3 h, 6 h, 12 h, 24 h, 2 d, 3 d, 7 d, 14 d and 30 d (P1: weekly up to 90 d);
+- mostly served by feed pages (one page covers ~20 neighbouring posts).
+
+**Profile snapshots:**
+
+- P1: 4× a day at about **00:00, 06:00, 12:00 and 18:00 Iraq time** (± a few minutes of jitter);
+- others: daily at about **04:00 Iraq time**.
+
+**Backfill of a new channel:**
+
+1. Read the profile.
+2. Page back through the feed to 90 days, at most 15% of capacity.
+3. Pause on any limit; resume from a saved point.
+4. Then comments for the last 14 days of P1 and matched posts.
+
+**Deletion checks:** compare the feed with what we stored at 1 h, 24 h, 7 d and 30 d. A post missing between its neighbours is confirmed with its single-post page. We store the window ("between 10:00 and 11:00 Iraq time").
+
+### 9.8 Comments
+
+- **Source:** the comments widget for a post.
+- **When to fetch:**
+  - when the post's comment count in the feed changes (if the feed shows it [P0]);
+  - otherwise at 1 h, 6 h, 24 h, 72 h and 7 d after the post.
+- **Completeness check:** comments we have ÷ the post's comment count. Below 98% after a re-fetch → alert and mark the thread "partial". Phase 0 tells us whether the widget can return full threads ("load more").
+- **Edits and deletions** of comments are found the same way as for posts, at the scheduled re-fetches.
+- **Authors** are pseudonymized by default (§9.12). The widget shows names and photos; we keep neither unless pseudonymization is switched off.
+
+### 9.9 Priority-groups mode
+
+Public groups have **no feed**. Each message is a separate page (`t.me/<group>/<id>?embed=1`).
+
+**How it works:**
+
+1. Find the current newest message id once (a short search over ids, about 20–40 requests).
+2. Then each check requests the next ids until a few in a row don't exist (deleted messages leave gaps).
+3. **Cost per check** ≈ new messages + 3–5. A group with 300 messages a day costs at least 300 requests a day.
+4. Replies are visible as a reply preview, so threads can be rebuilt.
+5. Member lists are never collected.
+
+**Budget:** groups get a fixed share of capacity. Each group's cost is shown on the dashboard, so you can choose which ones are worth it.
+
+**Feasibility, cost and edge cases** are tested in Phase 0 (test G1).
+
+### 9.10 Media
+
+- **Metadata always.**
+- **Photos** downloaded (from Telegram's image CDN) only for P1 channels and keyword-matched posts. Each is stored once by sha256 and deleted after 90 days or on erasure.
+- **Videos and files:** thumbnail and metadata only.
+
+### 9.11 Dynamic keywords and mentions
+
+**Managing keywords:**
+
+- Keywords are managed through the API or CLI with versioning and active dates.
+- Each can have variants, exclusions and a match type: word, phrase, hashtag, @username, web domain, or **forward from a brand channel**.
+- A change takes effect within seconds: matchers reload when notified by Postgres `LISTEN/NOTIFY`.
+
+**Text normalization** (Arabic, Kurdish, English):
+
+- remove diacritics and tatweel;
+- unify alef forms (أ إ آ → ا) and ى/ي; optionally ة/ه;
+- handle Kurdish letters (ک ی ە ۆ ێ) carefully so words aren't broken;
+- Latin case folding;
+- a variants list per keyword for transliterations and misspellings.
+
+**Live matching:**
+
+- every new or edited post, comment, group message, caption, poll and link preview;
+- all keywords at once with a multi-pattern matcher (Aho–Corasick), then word-boundary checks.
+
+**Retroactive search** when a keyword is added or changed:
+
+- searches stored normalized text (Postgres trigram index, partitioned by month) within the retention window;
+- matches are saved with `found_via = retro`;
+- for P1 channels it can also run the channel's own `?q=` search to reach history older than our backfill, at low priority.
+
+**Outputs:**
+
+- mentions go to the outbox → webhook or API;
+- alerts arrive within one check cycle of the channel's tier.
+
+**Discovery:**
+
+- forwards from unknown channels, @usernames and `t.me` links in posts become **suggestions**, ranked by frequency and keyword hits;
+- a person approves; nothing is added automatically.
+
+### 9.12 Personal data: retention, pseudonymization, erasure, suppression
+
+| Data | Default retention |
+|---|---|
+| Channel info | while watched + 12 months |
+| Channel posts | 24 months |
+| Metric snapshots | thinned to daily after 90 days |
+| **Comments and group messages** | **12 months** |
+| Photos | 90 days |
+| Raw pages | never stored |
+
+**Pseudonymization (on by default):**
+
+- Logged out, commenters and group members appear with a display name, sometimes a link to their username, and a photo.
+- We store `author_key = HMAC-SHA256(per-client secret key, normalized display name + username if shown)`, plus `HMAC(username)` when a username is visible, so erasure by username works.
+- Names, usernames and photos are **not stored**.
+- Signed post authors are treated the same way.
+- Note: without an account we don't see Telegram's numeric user ids. Two different people with the same display name could get the same key when no username is shown. Pseudonymized analytics accept this.
+
+**Erasure** (CLI and API; audited):
+
+- **By person** (username or display name):
+  1. Add them to the **suppression list first**.
+  2. Delete their comments, group messages, signatures, mentions and photos.
   3. Purge caches.
-  4. Publish an erasure event so downstream systems (analysis service, search indexes, Kafka compacted topics via tombstones) delete too.
+  4. Send an erasure event through the outbox so downstream SecureBrand systems delete too.
   5. Record completion.
-- **By channel or group:** the same, for everything from that source, and the scheduler stops watching it.
+- **By channel or group:** the same for everything from that source; it is then marked suppressed and never collected again.
 - **Backups** expire within the retention window. After any restore, the **erasure log is replayed** before the system serves data.
 
 **Suppression list:**
 
-- Entries are hashed person ids and usernames, channel ids and usernames, with scope (one client or all) and a reason code.
-- Checked by the registry (can't add a suppressed source), the scheduler, ingest (drops suppressed authors' content before writing), the media fetcher and the mentions output.
-- Postgres is the source of truth, with a fast copy in Valkey.
-- **Erased data never comes back**, even if it is collected again.
+- Contains hashed usernames and display names, channels and groups, with scope (one client or all) and a reason.
+- Checked by the registry, scheduler, ingest (content from suppressed people is dropped before writing), media and outputs.
+- **Erased data never comes back.**
 
 **Other safeguards:**
 
-- Logs never contain message text, names, usernames or phone numbers. Only ids and hashes.
-- Member lists are never collected (blocked method).
+- Logs contain no message text, names or usernames; only ids and hashes.
+- Member lists are never collected.
 
-### 8.13 Credentials and the session file
+### 9.13 Credentials and repository safety
 
-- **Locations:**
-  - All secrets live in `/etc/securebrand-tg/` on the server, readable only by the service user (`0600`), or in environment variables set by systemd or Docker secrets.
-  - **Never** in the repo, in logs, in command-line arguments (they show in `ps` and shell history) or in chat.
-- **Session file:**
-  - Encrypted at rest (AES-GCM) with a key kept in a separate file.
-  - Lives on one server only.
-  - We list the account's active sessions (`account.getAuthorizations`) daily and alert on any unknown login.
-- **Login is interactive:** you run the login command on your server and type the phone code and 2FA password yourself. I never see them.
-- **Redaction:** the Bot API puts the token in the URL path, so our HTTP client strips it from every log line and error message.
-- **Repo safety:** `.gitignore` excludes `*.session`, `.env*`, `secrets/`, Phase 0 output. CI runs a secret scanner (gitleaks plus patterns for bot tokens and 32-hex api_hash values).
+- **Secrets** (database password, S3 keys, optional vendor key, alert webhook) live in `/etc/securebrand-tg/` (`0600`, service user only) or Docker secrets. They are never in git, logs, command-line arguments or chat.
+- `.gitignore` already excludes env files, keys, session files and Phase 0 output.
+- CI runs a secret scanner (gitleaks).
+- **The repo is public:**
+  - test fixtures are **synthetic**, made by a generator from a fixed seed;
+  - CI fails if `testdata/` contains anything the generator didn't produce;
+  - real pages and real data are never committed.
 
-### 8.14 Testing and the "fake Telegram"
+### 9.14 Testing: the "fake Telegram"
 
-- **Fake t.me:** an HTTP test server serving **synthetic** pages built from templates with the same structure as the real preview (fictional channels, generated text in Arabic, Kurdish and English, fake numbers). Switches simulate 429 with `Retry-After`, 5xx, redirect (no preview), and markup drift. **No captured real pages are ever committed.**
-- **Fake MTProto:** our adapter interface has an in-memory fake that can script `FLOOD_WAIT`, `FROZEN_METHOD_INVALID`, empty messages (deletions), edits, and comment threads. The gotd layer is tested with gotd's mock invoker (`tgmock`).
-- **Fake Bot API:** test server for webhook, `getUpdates` and `getChat`.
-- **Integration tests:** Postgres, Valkey, Redpanda and MinIO in containers (testcontainers-go) in CI.
-- **Test coverage:**
-  - unit tests: limiter (fake clock), parser, normalizer, Arabic and Kurdish normalization, privacy rules;
-  - integration tests: full flows against the fakes, including erasure plus suppression end-to-end ("erased data never comes back").
-- **Fixture rule:** fixtures are generated by a script from a fixed seed. A CI check fails if `testdata/` contains anything not produced by the generator.
+- **Fake t.me server** in tests serving synthetic profile pages, feeds, post widgets, comment widgets and group message pages, with the same structure as the real ones.
+- It uses fictional channels and people, with generated Arabic, Kurdish and English text.
+- Switches simulate `429` with `Retry-After`, 5xx, slow responses, "no preview" redirects, deleted messages, edits, a channel posting faster than we poll, and markup changes.
+- **Unit tests:** parser, normalizer, Arabic and Kurdish normalization, matcher, capacity manager (fake clock), privacy rules.
+- **Integration tests:** Postgres, Valkey and MinIO in containers (testcontainers-go) in CI; full flows against the fake server, including **erasure plus suppression end-to-end** ("erased data never comes back").
 
-### 8.15 Monitoring and alerts
+### 9.15 Monitoring and alerts
 
 **Metrics (Prometheus):**
 
-- requests by adapter, method and result;
-- FloodWait count and seconds by method;
-- 429s;
-- remaining budgets and search quota;
-- account state (ok, paused, frozen);
+- requests by page type and result;
+- 429s and `Retry-After` seconds;
+- current rate R;
 - queue lag;
-- **freshness** (post time → first seen, p50 and p95 per tier);
+- **real freshness per tier** (post time → first seen, p50 and p95);
 - refresh schedule adherence;
-- **comment completeness**;
+- comment completeness;
+- group costs;
 - parser failure rate;
-- dead-letter count;
-- retention and erasure job status;
-- disk usage.
+- dead letters;
+- retention and erasure jobs;
+- disk use.
 
-**Alerts** (email or Slack, times shown in Iraq time):
+**Alerts** (email or webhook, times in Iraq time):
 
-- account frozen or paused > 1 h;
+- repeated 429s or a challenge page;
 - parser failures > 5%;
-- freshness target missed;
+- P1 freshness target missed for 30 min;
 - completeness < 98%;
-- unknown login on the account;
 - erasure overdue;
-- disk > 80%.
+- disk > 80%;
+- backups failing.
 
-Grafana dashboards. We reuse the Facebook project's stack if it fits.
-
-### 8.16 What to reuse from the Facebook project (needs the repo attached)
-
-To check, not assume:
-
-- the adaptive rate limiter and circuit breakers (Telegram's limits are per *account and method* with explicit waits; Facebook's are different);
-- the Phase 0 kit structure;
-- the fake-platform testing approach;
-- GDPR erasure (extend it with the suppression list);
-- Kafka topic conventions;
-- the shared Postgres, S3 and monitoring.
-
-The **analysis-service handoff** needs the legal check in §2.2 before reuse.
+**Dashboards:** Grafana.
 
 ---
 
-## 9. Phase 0: measure before building
+## 10. Phase 0: measure before building
 
-**Goal:** real numbers for the chosen mix, on a small sample, over **7 days**, with strict caps.
+**Goal:** real numbers for logged-out collection at your scale, from **the server and IP the system will use**, over **7–10 days**, with strict caps.
+
+**Tool:** a small read-only Go command, `tgprobe`, built in the first PRs after approval.
+
+- It has a hard cap on total requests and on rate.
+- It **stops at the first `429`, block or challenge**.
+- It writes **only aggregated numbers** (counts, timings, which fields exist, rounding, error codes). No text, no names.
+- Output goes to `/var/lib/securebrand-tg/phase0/` on your server, never to git.
 
 **Sample:**
 
-- about **10 channels**: up to 3 brand-owned (ideally with the bot), 4 competitors, 3 other public channels;
-- **2 public groups**;
-- **3 keywords**.
+- 50 channels (Arabic, Kurdish, English; busy and quiet), with full collection;
+- the **full channel list** for a one-request-each availability check, at 1 request every 5 s (3,000 channels ≈ 4 hours);
+- 5 public groups (quiet and busy);
+- 5 keywords.
 
-While the legal opinion is pending, I suggest starting with **brand-owned channels only**.
-
-**Tool:**
-
-- A small read-only Go command, `tgprobe`, built in the first pull requests after you approve this plan.
-- It has hard caps on requests per test and overall.
-- It writes **only aggregated numbers**: counts, timings, error codes, which fields exist, whether numbers are rounded. It writes **no message text, no names**.
-- Output goes to `/var/lib/securebrand-tg/phase0/` on your server, never to git.
-- With the account it **never probes for the ceiling**: it runs at a fixed gentle rate and records what happens.
-
-**Tests (each one runs only after you approve it):**
+**Tests (each runs only after you approve it):**
 
 | # | Test | Measures |
 |---|---|---|
-| W0 | Read `https://t.me/robots.txt` (you can do this now, see commands below) | Telegram's own crawler policy |
-| W1 | Profile and feed header for each sample channel | Fields present; subscriber count exact or rounded |
-| W2 | Feed pages for 2 channels, back through history at 1 request / 5 s | Posts per page, how far back it goes, fields (views rounding, reactions, comment counter, edited, forward source, media sizes) |
-| W3 | Polling tolerance: 1 request every 10 s → 5 s → 3 s → 2 s, 1 hour each, **stop at the first 429 or challenge** | Safe logged-out rate from one IP |
-| W4 | Discussion widget on 20 posts with comments | Comments returned vs the account's count |
-| W5 | In-channel search `?q=` for the 3 keywords | Works or not; results vs local matching |
-| W6 | Feed URL for the 2 public groups | Expected: no preview |
-| W7 | Single-post pages for posts that vanished from feeds | Confirms deletion detection |
-| M0 | You set up the account, api_id and 2FA, and log in on the server | — |
-| M1 | Resolve the sample usernames once, **spaced 5 minutes apart**; cache | Any limits on resolving |
-| M2 | Full channel info; history backfill of 1 channel at 1 call / 3 s | Throughput, any FloodWait |
-| M3 | Comment threads of 50 posts | Time, completeness vs counters |
-| M4 | 7 days of refresh at the target budget (≈ 0.15–0.3 calls/s) | FloodWait frequency per method |
-| M5 | The 2 public groups **without joining** | Readable or not. If not, we **don't** join; we report back. |
-| M6 | `checkSearchPostsFlood` (free); then, only if you approve Premium, the 3 keywords × a few pages | Daily free quota, Stars price, usefulness vs local matches |
-| M7 | Re-check stored post ids | Deletion detection rate |
-| M8 | Exact views (account) vs rounded views (web) | How much rounding loses |
-| B1 | Bot added by a client as admin to one channel and its discussion group, for 7 days | Posts, edits, reaction-count delay, comments vs the account's data |
+| W0 | `t.me/robots.txt` (you can run it now, below) | Whether Telegram's crawler rules allow the pages we need |
+| W1 | Profile + feed header for the 50 channels | Fields present; subscriber count exact or rounded |
+| W2 | Feed pages of 5 channels back through history at 1 request / 5 s | Posts per page; how far back; views rounding; reactions; comment count; edited flag; forward source; media; whether compression and "not modified" answers work |
+| W3 | **Rate test:** 1 request every 10 s → 5 s → 2 s → 1 s → 0.5 s, 2 hours per step, **stop at the first 429**; then 72 hours at about 70% of the highest clean step | **The safe rate R**: the number that decides freshness (§9.5) |
+| W4 | Comments widget on 50 posts with comments | Comments returned vs the post's count; whether "load more" works logged out |
+| W5 | In-channel search `?q=` with the 5 keywords (Arabic and Kurdish) | Works or not; paging; vs our own matching |
+| W6 | Availability over the full list | Share of channels with no preview, wrong usernames, groups listed as channels |
+| W7 | Single-post pages for posts that disappeared from feeds | Deletion detection |
+| W8 | Image URLs fetched again after 24 h | Whether Telegram's image links expire |
+| G1 | The 5 groups through message pages for 3 days | Does it work logged out; requests per group per day; gaps; reply previews |
+| V1 | Optional TGStat trial with the 5 keywords | Coverage of our channels and groups, Iraqi and Kurdish content, extra mentions found, terms, whether payment works |
 
-**How the results decide the design:**
+**How the results decide the settings:**
 
-- **Logged-out channel collection:** use it if W3 shows a comfortable rate with no 429 and W1/W2 fields are enough. Otherwise more goes to the account.
-- **Comment widget:** use it for comments if W4 reaches ≥ 98% completeness. Otherwise comments come from the account.
-- **Account budget:**
-  - If M4 shows more than one FloodWait over 10 minutes per day, halve the budget and re-run.
-  - If the account is frozen, stop and rethink with you.
-- **Search:** if M6's free quota is too small for our keywords, decide between a Stars budget and a vendor.
-- **Settings:** the final budgets and intervals are set at about half the comfortable measured rates.
+- **Rate:** R = about 70% of the highest clean rate in W3. Tier intervals come from the §9.5 table.
+- **Comments:** if W4 reaches ≥ 98% → comments as planned. Otherwise the scope is limited to P1 and reported as "partial".
+- **Groups:** the G1 cost per group sets how many priority groups fit in the group share.
+- **Vendor:** V1 decides whether TGStat is worth paying for.
+- **robots.txt:** if W0 disallows these pages, **we stop and talk** before anything else.
 
-**Phase 0 report:** `docs/phase0-report.md`, aggregated numbers only. Plus an updated version of this plan.
+**Report:** `docs/phase0-report.md`, aggregated numbers only, plus an updated plan.
 
 **Timeline:**
 
 | Days | Work |
 |---|---|
-| 1–3 | Small PRs that build `tgprobe` and the fakes |
+| 1–3 | Small PRs that build `tgprobe` and the fake server |
 | 4 | You set up the server (commands below) |
-| 5–11 | 7-day run. A daily summary at 09:00 Iraq time. |
-| 12 | Report |
+| 5–14 | Tests, including the 72-hour run. Daily summary at 09:00 Iraq time. |
+| 15 | Report |
 
-### Commands you can run now (they don't touch Telegram except W0)
+### Commands you can run now
+
+Test W0, Telegram's crawler rules. It contains no personal data; send me what it prints:
+
+```bash
+curl -sS https://t.me/robots.txt
+```
 
 Create a dedicated system user:
 
@@ -828,33 +702,21 @@ Create the Phase 0 output folder:
 sudo install -d -m 0700 -o securebrand-tg -g securebrand-tg /var/lib/securebrand-tg/phase0
 ```
 
-Test W0: read Telegram's crawler policy. It contains no personal data; send me what it prints:
+Show the server's public IPv4 address. Phase 0 and the real system must use this same one:
 
 ```bash
-curl -sS https://t.me/robots.txt
+curl -4 -sS https://ifconfig.me
 ```
 
-### Commands for later (once the `tgprobe` PRs are merged; exact flags may change)
+### Commands for later (once the `tgprobe` PRs are merged; flags may change)
 
-Create the session encryption key (it is written straight to a file, never shown):
+Put the sample list on the server (you edit it; it is not committed to git):
 
 ```bash
-sudo -u securebrand-tg sh -c 'umask 077; openssl rand -base64 32 > /etc/securebrand-tg/session.key'
+sudo -u securebrand-tg nano /etc/securebrand-tg/phase0-sample.yaml
 ```
 
-Write the account settings with an editor. Type `TG_API_ID=…` and `TG_API_HASH=…` yourself; never paste them anywhere else:
-
-```bash
-sudo -u securebrand-tg nano /etc/securebrand-tg/telegram.env
-```
-
-Log in interactively (you type the phone number, the code and the 2FA password):
-
-```bash
-sudo -u securebrand-tg /opt/securebrand-tg/bin/tgprobe login --env /etc/securebrand-tg/telegram.env
-```
-
-Run one approved test, for example W1:
+Run test W1:
 
 ```bash
 sudo -u securebrand-tg /opt/securebrand-tg/bin/tgprobe web profile --sample /etc/securebrand-tg/phase0-sample.yaml --out /var/lib/securebrand-tg/phase0
@@ -862,51 +724,43 @@ sudo -u securebrand-tg /opt/securebrand-tg/bin/tgprobe web profile --sample /etc
 
 ---
 
-## 10. Main risks
+## 11. Main risks
 
 | # | Risk | Effect | What we do |
 |---|---|---|---|
-| R1 | **Telegram's terms** (scraping ban since Feb 2026; AI/ML ban) | The product may be non-compliant for third-party channels; ML analysis is forbidden | Legal opinion first; start with owned channels; minimal data; no ML; consider licensed data or written permission from Telegram |
-| R2 | **Account ban or freeze** | Lose comments, groups and search | Passive, slow, read-only, cached lookups, one stable server, aged real account with 2FA; degrade to logged-out; never replace accounts without you |
-| R3 | **IP throttling or blocking of t.me** | Slower freshness | Measured budgets, honour 429, no proxy rotation, alerts |
-| R4 | **HTML changes** in the web preview | Parser breaks | Selectors in one file, failure-rate alarm, account fallback |
-| R5 | **No web preview** for some channels (political ones may be affected) | Need the account for them | Detect redirect; route to account |
-| R6 | **Search changes:** Premium, quotas and Stars prices change | Mention discovery cost or coverage changes | Read the quota daily; budget cap; vendor alternative |
-| R7 | **API changes** (new layers; gotd lagging) | Breakage | Keep gotd updated; contract tests against fakes; watch the changelog |
-| R8 | **Personal data and law** (GDPR for EU/UK people or clients; local law) | Fines, complaints | Retention, pseudonymization, erasure plus suppression, DPIA with your adviser |
-| R9 | **Session file theft** = account takeover | Account abuse | Encryption, `0600`, single host, 2FA, daily active-session check |
-| R10 | **Losing the phone number** (SIM expires, number recycled) | Account lost | Keep the SIM active; recovery email; 2FA |
-| R11 | **Incomplete data** (deleted comments, deletion timing) | Wrong numbers in reports | Reconciliation and completeness metrics; tell clients the limits |
-| R12 | **Location mismatch** (Iraqi number, server in Germany or Finland) | May add suspicion | Log in once from the server and keep it stable; Phase 0 watches |
-| R13 | **Vendor issues** (TGStat ruble payment, sanctions, their own ToS position) | No vendor option | Trial plus legal and payment check before relying on it |
+| R1 | **Telegram's general scraping clause** (since Feb 2026) | Telegram could object to the collection; clients could be exposed | Brand monitoring only, no AI/ML; minimal data; obey robots.txt and limits; a short legal check is still advised; stop if Telegram objects |
+| R2 | **IP slowed or blocked** | Freshness drops or collection stops | Measured safe rate, automatic back-off, alerts; no IP rotation; a vendor as fallback |
+| R3 | **Not enough capacity** for thousands of channels from one IP | P3 channels checked only every few hours | Tiers, adaptive polling, dashboard of real freshness; narrow the list or add a vendor |
+| R4 | **Public groups can't be covered at scale** logged out | Most groups missing | Priority-groups mode; vendor test; tell clients clearly |
+| R5 | **HTML changes** | Parser breaks | Selectors in one file; drift alarm; fake-server tests |
+| R6 | **No preview** for some channels (some political ones may be affected) | Those channels are unreadable | Detected in W6 and flagged; vendor may cover them |
+| R7 | **Rounded numbers** | Views are approximate | Store both the shown text and the parsed value; show ranges in reports |
+| R8 | **Comments incomplete** if the widget limits them | Partial threads | Completeness metric; mark "partial" |
+| R9 | **Personal data and law** (GDPR if EU/UK people or clients are involved; local law) | Complaints, fines | Retention, pseudonymization, erasure plus suppression; a short DPIA with your adviser |
+| R10 | **Vendor issues** (rubles, sanctions, coverage, their terms) | No vendor option | Phase 0 trial before paying |
 
-## 11. Open questions (not answerable from here)
+## 12. Open questions (answered by Phase 0 or a legal check)
 
-1. Exact current wording of the Content Licensing terms and Bot Developer Terms 4.3. Both pages were blocked; I have search summaries only.
-2. Does the sponsored-messages clause (API ToS 3.3) apply to a back-end collector whose output is shown in SecureBrand dashboards? (Legal.)
-3. Why some channels have no web preview, and whether "restrict saving content" channels show one. [P0]
-4. How many comments the discussion widget returns. [P0]
-5. Whether non-Premium accounts can use `channels.searchPosts` at all; the free quota and Stars price. [P0, via the free check]
-6. Whether public groups can be read without joining. [P0]
-7. Real FloodWait thresholds for our access pattern. [P0]
-8. Whether poll results are visible without voting (we will never vote). [P0]
-9. Whether the analysis service uses ML. (You / Facebook-project repo.)
-10. **Communities** (Telegram feature from July 2026; channels now carry `linked_community_id` [V]): may help discovery later. Out of scope for now.
+1. What does `t.me/robots.txt` allow? (W0, you can run it now.)
+2. The safe request rate from our IP. (W3)
+3. Does the feed show comment counts? Does the comments widget return full threads? (W2, W4)
+4. Does the post widget work for public **group** messages logged out, and at what cost per group? (G1)
+5. How far back can the feed go? Do image links expire? (W2, W8)
+6. Exact wording of the Content Licensing terms (page blocked here; I have a search summary).
+7. Does TGStat cover groups and Iraqi/Kurdish channels, and can it be paid for from Iraq? (V1)
 
-## 12. Implementation roadmap (after you approve)
+## 13. Implementation roadmap (after you approve)
 
-Each item is a small **draft pull request** with unit and integration tests and green CI. I review each one, and merge after CI is green, as you asked.
+Each item is a small **draft PR** with unit and integration tests and green CI. I review each one and merge when CI is green, as you asked.
 
 **Before Phase 0:**
 
 | PR | Content |
 |---|---|
-| 1 | Repo skeleton: Go module, Makefile, CI (lint, tests, gitleaks, fixture check), `.gitignore`, contribution notes. |
-| 2 | Rate limiter: per-credential and per-method budgets, FloodWait parking, AIMD, circuit breaker; fake-clock tests. |
-| 3 | Web-preview parser, synthetic fixture generator, fake t.me server. |
-| 4 | MTProto adapter on gotd: method allowlist, encrypted session storage, interactive login, fake and tgmock tests. |
-| 5 | Bot API receiver and fake Bot API. |
-| 6 | `tgprobe` Phase 0 command with hard caps and aggregated reports; integration tests against the fakes. |
+| 1 | Repo skeleton: Go module, Makefile, CI (lint, tests, gitleaks, fixture check), contribution notes. |
+| 2 | Capacity manager: one budget for the IP, priorities, `429`/`Retry-After`, AIMD, circuit breaker; fake-clock tests. |
+| 3 | Page parsers (profile, feed, post widget, comments widget, group message) with selectors in one file; synthetic fixture generator; fake t.me server. |
+| 4 | `tgprobe` Phase 0 command with hard caps and aggregated reports; integration tests against the fake server. |
 
 → **Phase 0 run and report**, then a plan update.
 
@@ -915,16 +769,19 @@ Each item is a small **draft pull request** with unit and integration tests and 
 - database schema and migrations;
 - registry with suppression list;
 - scheduler;
-- collectors;
-- ingest and versions;
-- comments sync;
-- mentions;
-- privacy service (retention, erasure, audit);
+- fetcher;
+- ingest with versions and metrics;
+- comments;
+- priority groups;
+- keywords, live matcher and retroactive search;
+- discovery queue;
+- privacy service;
 - media;
+- API, outbox and webhooks;
 - monitoring;
-- deployment (Docker Compose or systemd), with your server commands in each PR.
+- deployment (Docker Compose), with your server commands in each PR.
 
-## 13. Sources
+## 14. Sources
 
 **Official Telegram sources (read via GitHub):**
 
@@ -932,6 +789,7 @@ Each item is a small **draft pull request** with unit and integration tests and 
 - TDLib API with documentation: <https://github.com/tdlib/td/blob/master/td/generate/scheme/td_api.tl>
 - TDLib post-search code: <https://github.com/tdlib/td/blob/master/td/telegram/MessageQueryManager.cpp>
 - Bot API 10.3 specification (generated from the official docs): <https://github.com/PaulSonOfLars/telegram-bot-api-spec>
+- Copy of Telegram's widget script (post and comments widget URLs): <https://github.com/tonkeeper/tonkeeper-web/blob/HEAD/apps/web/src/telegram-widget.js>
 
 **Archived official legal texts (Open Terms Archive):**
 
@@ -944,17 +802,14 @@ Each item is a small **draft pull request** with unit and integration tests and 
 
 - <https://telegram.org/tos/content-licensing>
 - <https://telegram.org/tos/bot-developers>
-- <https://core.telegram.org/api/obtaining_api_id>
-- <https://core.telegram.org/bots/features>
-- <https://core.telegram.org/bots/faq>
+- <https://core.telegram.org/widgets/post>
 - <https://core.telegram.org/widgets/discussion>
+- <https://core.telegram.org/bots/features>
 - <https://core.telegram.org/method/channels.searchPosts>
-- <https://core.telegram.org/type/SearchPostsFlood>
-- <https://core.telegram.org/method/channels.getChannelRecommendations>
 - <https://core.telegram.org/api/premium>
 - <https://telegram.org/blog/post-search-story-albums-and-more>
 
-**Web-preview parsers (code read for what the preview contains):**
+**Web-feed parsers (code read for what the pages contain):**
 
 - snscrape: <https://github.com/JustAnotherArchivist/snscrape/blob/master/snscrape/modules/telegram.py>
 - RSSHub: <https://github.com/DIYgod/RSSHub/tree/master/lib/routes/telegram>
@@ -962,22 +817,16 @@ Each item is a small **draft pull request** with unit and integration tests and 
 - TeleGlance: <https://github.com/NWGKGIT/TeleGlance>
 - BroadcastChannel: <https://github.com/miantiao-me/BroadcastChannel>
 
-**Libraries:**
+**Libraries (for the record):**
 
-- gotd/td: <https://github.com/gotd/td> (and its "how not to get banned" guide: <https://github.com/gotd/td/blob/main/.github/SUPPORT.md>)
-- gotd/contrib: <https://github.com/gotd/contrib>
+- gotd/td: <https://github.com/gotd/td>
 - Telethon: <https://github.com/LonamiWebs/Telethon>
 - Pyrogram: <https://github.com/pyrogram/pyrogram>
 - TDLib: <https://github.com/tdlib/td>
-- go-tdlib: <https://github.com/zelenin/go-tdlib>
 
 **Prices and vendors (search summaries):**
 
 - TGStat prices: <https://tgstat.com/p/prices>
+- TGStat API intro: <https://api.tgstat.ru/docs/ru/start/intro.html>
 - Hetzner 2026 prices: <https://costgoat.com/pricing/hetzner>, <https://www.bitdoze.com/hetzner-cloud-cost-optimized-plans/>
-- Telegram Premium review: <https://tgsuperstars.com/en/blog/telegram-premium-features/>
 - Bellingcat toolkit on TGStat: <https://github.com/bellingcat/toolkit/blob/main/gitbook/tools/tgstat/README.md>
-
-**Other:**
-
-- Telegram Communities (July 2026): <https://www.republicworld.com/tech/telegram-rolls-out-communities-rich-text-editor-and-private-bot-messages-in-major-update-2026-07-20-132913>
